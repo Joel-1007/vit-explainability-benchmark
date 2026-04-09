@@ -1,0 +1,57 @@
+# configs/imagenet_s50.yaml
+# Task 1.2 §5.3 / Task 1.3 §2.3 — ImageNet-S-50
+#
+# 50-class subset of ImageNet-1K with full pixel-level semantic segmentation
+# annotations on val (752 images) and test (739 images).
+#
+# Purpose in the benchmark:
+#   Evaluates explanation quality on the model's own pre-training distribution
+#   (all six zoo models were pre-trained on ImageNet variants).  This is the
+#   large-scale, diverse, multi-class evaluation set.
+#
+# Dataset:   https://github.com/LUSSeg/ImageNet-S
+# Paper:     "Large-scale Unsupervised Semantic Segmentation" (TPAMI 2022)
+# License:   Apache 2.0 (repo); ImageNet license applies to images.
+#
+# IMPORTANT: Train annotations are only PARTIALLY labelled.
+#            Use val/ and test/ splits exclusively for localization metrics.
+
+dataset:        imagenet_s50
+num_classes:    50
+num_epochs:     30
+warmup_epochs:  5
+
+# Optimiser (§5.1)
+base_lr:        1.0e-4
+batch_size:     256
+weight_decay:   0.05
+
+# Augmentation (§5.4) — standard recipe, same as for full ImageNet
+input_size:     224
+color_jitter:   0.4
+rand_augment:   rand-m9-n2-mstd0.5-inc1
+re_prob:        0.25
+re_mode:        pixel
+re_count:       1
+interpolation:  bicubic
+mixup_alpha:    0.8
+cutmix_alpha:   0.0
+label_smoothing: 0.1
+
+# Localization evaluation
+# Use val/ (752 images) and test/ (739 images) — both have full GT pixel masks.
+# DO NOT use train/ for localization — annotations are partial.
+localization_split: val    # primary evaluation split
+gt_mask_ext:        .png   # mask file extension in each class subdirectory
+
+# Misc
+dropout:        0.0
+stochastic_depth: 0.1
+amp:            true
+num_workers:    8
+accum_steps:    1
+
+# Pilot sanity check — no published 5-epoch threshold; verify loss is finite
+# and val top-1 is climbing before committing to full training.
+pilot_epochs:       5
+pilot_min_top1:     40.0   # conservative threshold for 50-class classification

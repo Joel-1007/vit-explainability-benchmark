@@ -1,0 +1,5 @@
+ViT Explainability Benchmark — Pre-trained Model Hash Log
+Generated : 2026-04-09T18:06:40.110887
+Purpose   : Task 1.2 §6.4 — Reproducibility record
+============================================================
+

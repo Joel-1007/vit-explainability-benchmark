@@ -1,0 +1,33 @@
+# configs/imagenet.yaml
+# Task 1.2 §5.3 — ImageNet-1K
+# Linear head probing only (backbone frozen); used for final accuracy verification.
+# NOT a full fine-tune — backbone weights are frozen, only the head is trained.
+
+dataset:        imagenet
+num_classes:    1000
+num_epochs:     30
+warmup_epochs:  5
+
+# Optimiser — applied to the head only (backbone frozen)
+base_lr:        1.0e-3       # higher LR acceptable for linear probe
+batch_size:     256
+weight_decay:   0.0          # no weight decay for linear probe head
+
+# Augmentation (standard; no heavy augmentation for linear probe)
+input_size:     224
+color_jitter:   0.0
+rand_augment:   null         # disabled for linear probe
+re_prob:        0.0
+interpolation:  bicubic
+mixup_alpha:    0.0          # disabled for linear probe
+cutmix_alpha:   0.0
+label_smoothing: 0.0
+
+# Linear probe specific
+freeze_backbone: true        # FREEZE backbone; only head is trained
+
+# Misc
+dropout:        0.0
+amp:            true
+num_workers:    8
+accum_steps:    1

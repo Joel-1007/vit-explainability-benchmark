@@ -1,0 +1,36 @@
+# configs/pascal_voc.yaml
+# Task 1.2 §5.3 — PASCAL VOC 2012 (segmentation subset, 20-class)
+# Full fine-tune; classification over 20 object categories
+
+dataset:        pascal_voc
+num_classes:    20
+num_epochs:     30
+warmup_epochs:  5
+
+# Optimiser (§5.1)
+base_lr:        1.0e-4
+batch_size:     256
+weight_decay:   0.05
+
+# Augmentation (§5.4)
+input_size:     224
+color_jitter:   0.4
+rand_augment:   rand-m9-n2-mstd0.5-inc1
+re_prob:        0.25
+re_mode:        pixel
+re_count:       1
+interpolation:  bicubic
+mixup_alpha:    0.8
+cutmix_alpha:   0.0
+label_smoothing: 0.1
+
+# Misc
+dropout:        0.0
+stochastic_depth: 0.1
+amp:            true
+num_workers:    8
+accum_steps:    1
+
+# Pilot sanity check threshold (§5.8)
+pilot_epochs:       5
+pilot_min_top1:     75.0     # minimum top-1 % required after 5 epochs

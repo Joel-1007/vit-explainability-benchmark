@@ -1,0 +1,38 @@
+# configs/cub200.yaml
+# Task 1.2 §5.3 — CUB-200-2011 fine-tuning configuration
+# Full fine-tune; 200 fine-grained bird classes
+
+dataset:        cub200
+num_classes:    200
+num_epochs:     50
+warmup_epochs:  5
+
+# Optimiser (§5.1)
+base_lr:        1.0e-4       # for batch_size 256; scaled linearly otherwise
+batch_size:     256
+weight_decay:   0.05
+
+# Augmentation (§5.4)
+input_size:     224
+color_jitter:   0.4
+rand_augment:   rand-m9-n2-mstd0.5-inc1
+re_prob:        0.25
+re_mode:        pixel
+re_count:       1
+interpolation:  bicubic
+mixup_alpha:    0.8
+cutmix_alpha:   0.0          # Disabled — Mixup only
+label_smoothing: 0.1
+
+# Misc
+dropout:        0.0          # disabled during fine-tuning
+stochastic_depth: 0.1        # drop path rate
+amp:            true
+num_workers:    8
+
+# Memory-constrained fallback
+accum_steps:    1            # increase if GPU OOM (e.g. 4 → 64×4=256 effective)
+
+# Pilot sanity check threshold (§5.8)
+pilot_epochs:       5
+pilot_min_top1:     65.0     # minimum top-1 % required after 5 epochs

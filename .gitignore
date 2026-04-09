@@ -1,0 +1,58 @@
+# ViT Explainability Benchmark — .gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+.pytest_cache/
+.mypy_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Model checkpoints — large binary files; do NOT commit
+checkpoints/
+*.pth
+*.pt
+*.bin
+*.safetensors
+*.ckpt
+
+# HuggingFace cache
+~/.cache/huggingface/
+
+# Hash logs — DO commit these for reproducibility
+!model_hashes.txt
+!finetuned_hashes.txt
+
+# Datasets — never commit raw data
+data/
+datasets/raw/
+
+# Experiment outputs
+runs/
+logs/
+outputs/
+results/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
