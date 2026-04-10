@@ -1,8 +1,8 @@
 """
-runner.py  —  BenchmarkRunner  (Task 2.2 §5 / Task 2.3 integration)
-====================================================================
-Integrates LocalizationMetrics and (optionally) RobustnessMetrics
-into a dataset-level evaluation loop.
+runner.py  —  BenchmarkRunner  (Tasks 2.2–2.4 / integration)
+=============================================================
+Integrates LocalizationMetrics, ComplexityMetrics (optional), and
+RobustnessMetrics (optional) into a dataset-level evaluation loop.
 
 Responsibilities
 ----------------
@@ -51,6 +51,7 @@ import torch
 from tqdm import tqdm
 
 from .localization import LocalizationMetrics
+from .complexity   import ComplexityMetrics
 from .robustness   import RobustnessMetrics
 
 log = logging.getLogger(__name__)
@@ -94,6 +95,7 @@ class BenchmarkRunner:
         robustness:             Optional[RobustnessMetrics] = None,
         randomised_model:       Optional[torch.nn.Module]  = None,
         label_randomised_model: Optional[torch.nn.Module]  = None,
+        complexity:             Optional[ComplexityMetrics] = None,
     ) -> None:
         self.metrics                = metrics
         self.explainer              = explainer
@@ -104,6 +106,7 @@ class BenchmarkRunner:
         self.robustness             = robustness
         self.randomised_model       = randomised_model
         self.label_randomised_model = label_randomised_model
+        self.complexity             = complexity
 
         # Validate robustness dependency when robustness is requested
         if robustness is not None:
@@ -193,6 +196,12 @@ class BenchmarkRunner:
                     for k, v in sample_metrics.items():
                         all_metrics[k].append(v)
 
+                    # --- Optional C1–C3 per sample -------------------------
+                    if self.complexity is not None:
+                        c_scores = self.complexity.compute_all(att)
+                        for k, v in c_scores.items():
+                            all_metrics[k].append(v)
+
                     # --- Optional R1–R3 per sample -------------------------
                     if self.robustness is not None:
                         single_img = images[i].cpu()   # (C, H, W)
@@ -273,6 +282,12 @@ class BenchmarkRunner:
             f"PG={macro.get('pointing_game', float('nan')):.4f} | "
             f"EGT={macro.get('egt', float('nan')):.4f} | "
             f"CalibGap={macro.get('calibration_gap', float('nan')):.4f}"
+            + (
+                f" | Gini={macro.get('gini', float('nan')):.4f}"
+                f" | Sparsity={macro.get('sparsity', float('nan')):.4f}"
+                f" | EffRes={macro.get('effective_resolution', float('nan')):.4f}"
+                if self.complexity is not None else ""
+            )
             + (
                 f" | MaxSens={macro.get('max_sensitivity', float('nan')):.4f}"
                 f" | ModelRand={macro.get('model_randomisation', float('nan')):.4f}"

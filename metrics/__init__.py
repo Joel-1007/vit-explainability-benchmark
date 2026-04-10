@@ -60,6 +60,7 @@ try:
         RobustnessMetrics,
         randomise_model_weights,
         randomise_classifier_labels,
+        randomise_model_cascade,   # Task 2.3 addendum — cascading layer utility
     )
     _TORCH_SUBMODULES_AVAILABLE = True
 except ModuleNotFoundError:
@@ -85,4 +86,5 @@ __all__ = [
     "RobustnessMetrics",
     "randomise_model_weights",
     "randomise_classifier_labels",
+    "randomise_model_cascade",     # Task 2.3 addendum
 ]
