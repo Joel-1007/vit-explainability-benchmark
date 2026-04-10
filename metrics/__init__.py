@@ -3,6 +3,12 @@ metrics — ViT Explainability Benchmark
 =======================================
 Public API
 ----------
+Normalisation  (Guide Listing 3 — sits between explainers and metrics)
+    normalize_attribution        Normalise (Hp,Wp) or (B,Hp,Wp) to [0,1]
+    normalize_batch              Convenience wrapper for (B,Hp,Wp) input
+    NormMode                     Enum of valid mode strings
+    AttributionNormError         Raised on invalid mode / shape
+
 Fidelity
     FidelityMetrics              F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds
 
@@ -37,10 +43,16 @@ require ``torch`` and are silently skipped if it is not installed.
 # ---------------------------------------------------------------------------
 # Torch-independent submodules (always importable)
 # ---------------------------------------------------------------------------
+from .normalize import (
+    normalize_attribution,
+    normalize_batch,
+    NormMode,
+    AttributionNormError,
+)
 from .complexity import (
     ComplexityMetrics,
     ComplexityResult,
-    normalise_attribution,
+    normalise_attribution,   # complexity-internal normaliser (kept for back-compat)
 )
 from .axiom_verifier import (
     AxiomVerifier,
@@ -67,10 +79,15 @@ except ModuleNotFoundError:
     _TORCH_SUBMODULES_AVAILABLE = False
 
 __all__ = [
+    # Normalisation pipeline — Guide Listing 3 (torch-free)
+    "normalize_attribution",
+    "normalize_batch",
+    "NormMode",
+    "AttributionNormError",
     # Complexity (torch-free)
     "ComplexityMetrics",
     "ComplexityResult",
-    "normalise_attribution",
+    "normalise_attribution",   # complexity-internal normaliser
     # Axiomatic analysis (torch-free core)
     "AxiomVerifier",
     "AxiomTestResult",

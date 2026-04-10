@@ -25,7 +25,7 @@
 | [2.5](#25--axiomatic-analysis)                    | Axiomatic Analysis                | ✅          |
 | [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | 🔄 In Progress |
 | [3.1](#31--standardised-explainer-interface)      | Standardised Explainer Interface  | ✅          |
-| [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ⬜ Planned  |
+| [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ✅          |
 | [3.3](#33--benchmarkrunner)                       | BenchmarkRunner                   | ⬜ Planned  |
 | [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
 | [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
@@ -1213,11 +1213,52 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
 
 ## 3.2 Attribution Normalisation
 
-> [!NOTE]
-> **Status: Planned.** normalise each attribution map to a common range before
-> computing fidelity and localization metrics. Modes: `minmax` (default),
-> `percentile_clip(p=1)`, `softmax`. Will be implemented as
-> `metrics/normalize.py` with tests in `tests/test_normalize.py`.
+File: `metrics/normalize.py` — Guide Listing 3 canonical normalisation pipeline.
+Sits **between** explainers (raw maps) and metrics (expect [0, 1] inputs).
+
+### 3.2.1 API
+
+```python
+from metrics.normalize import normalize_attribution, normalize_batch, NormMode
+
+# Single map (Hp, Wp)
+norm = normalize_attribution(att_map, mode='minmax')
+
+# Batch (B, Hp, Wp) — each sample normalised independently
+batch_norm = normalize_attribution(batch_att, mode='percentile')
+
+# Convenience: enforces 3-D input strictly
+batch_norm = normalize_batch(batch_att, mode='softmax')
+```
+
+### 3.2.2 Mode Specifications (Guide §3.2)
+
+| Mode          | Formula                                          | Use case                              |
+| ------------- | ------------------------------------------------ | ------------------------------------- |
+| `minmax`      | `(att − min) / (max − min)` ; zeros if degenerate | Default; all fidelity + loc metrics   |
+| `percentile`  | clamp at 99th percentile → minmax               | Heavy-tailed maps (RISE, LIME)        |
+| `softmax`     | `softmax(att.flatten())` ; numerically stable    | EGT (L3), Effective Mass Ratio (C3)   |
+
+- Output always `float32`, values in `[0, 1]` (`softmax` sums to 1.0).
+- Degenerate (constant) maps return all-zeros for `minmax` and `percentile`.
+- Batch input `(B, Hp, Wp)`: each sample is normalised **independently**.
+
+### 3.2.3 Unit Tests (Task 3.2)
+
+File: `tests/test_normalize.py` — **24 tests**, all passing.
+
+| Class                          | Tests | Category                                          |
+| ------------------------------ | ----- | ------------------------------------------------- |
+| `TestMinmax`                   | 6     | range, exact [0,1], degenerate, shape, batch, dtype |
+| `TestPercentile`               | 6     | range, outlier suppression, rank-preservation, batch |
+| `TestSoftmax`                  | 6     | sum=1, all-positive, batch, stability, uniform, shape |
+| `TestIntegrationAndEdgeCases`  | 6     | pipeline, invalid mode, 1-D rejection, batch guard, idempotent, enum |
+
+```
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_normalize.py : 24 passed, 0 failed
+  Full suite        : 149 passed, 2 skipped (CUDA), 0 failed
+```
 
 ---
 
@@ -1432,4 +1473,20 @@ vit-explainability-benchmark/
 ☑ E7 DIMEExplainer — placeholder stub, NotImplementedError + BENCHMARK.md ref (explainers/dime.py)
 ☑ 26 unit tests passing + 1 documented skip — tests/test_explainers.py
 ☑ Full test suite: 125 passed, 2 skipped, 0 failed (2026-04-10)
+```
+
+### Phase 3 — Task 3.2 Checklist
+```
+☑ normalize_attribution(att_map, mode) — Guide Listing 3 canonical API
+☑ normalize_batch(att_maps, mode) — strict (B,Hp,Wp) enforcer
+☑ NormMode enum — 'minmax', 'percentile', 'softmax'
+☑ AttributionNormError — raised on invalid mode or shape
+☑ minmax: (att−min)/(max−min); degenerate → zeros
+☑ percentile: clamp at 99th percentile then minmax
+☑ softmax: numerically stable (max-shifted); sums to 1.0
+☑ Batch (B,Hp,Wp): each sample normalised independently
+☑ Output always float32; input accepts float16/32/64
+☑ metrics/__init__.py updated — normalize_attribution in torch-free block
+☑ 24 unit tests — tests/test_normalize.py — 24 passing
+☑ Full suite: 149 passed, 2 skipped (CUDA), 0 failed (2026-04-10)
 ```
