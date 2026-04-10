@@ -67,7 +67,7 @@ from .axiom_verifier import (
 try:
     from .fidelity import FidelityMetrics
     from .localization import LocalizationMetrics
-    from .runner       import BenchmarkRunner
+    from .runner       import BenchmarkRunner, Phase3Runner
     from .robustness   import (
         RobustnessMetrics,
         randomise_model_weights,
@@ -99,6 +99,7 @@ __all__ = [
     "LocalizationMetrics",
     # Runner (requires torch)
     "BenchmarkRunner",
+    "Phase3Runner",
     # Robustness (requires torch)
     "RobustnessMetrics",
     "randomise_model_weights",

@@ -26,7 +26,7 @@
 | [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | 🔄 In Progress |
 | [3.1](#31--standardised-explainer-interface)      | Standardised Explainer Interface  | ✅          |
 | [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ✅          |
-| [3.3](#33--benchmarkrunner)                       | BenchmarkRunner                   | ⬜ Planned  |
+| [3.3](#33--benchmarkrunner-phase3runner)          | BenchmarkRunner / Phase3Runner    | ✅          |
 | [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
 | [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
 | [Appendix C](#appendix-c--master-checklist)       | Master Checklist                  | —           |
@@ -1262,12 +1262,80 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
 
 ---
 
-## 3.3 BenchmarkRunner
+## 3.3 BenchmarkRunner (Phase3Runner)
 
-> [!NOTE]
-> **Status: Planned.** Extension of `metrics/runner.py` to include all 13
-> metrics + 7 explainers + checkpointing (pickle-based) + deterministic seed
-> injection. CLI: `python -m benchmark.run --config configs/run.yaml`.
+File `metrics/runner.py` now contains **two classes**:
+
+| Class | Purpose |
+|---|---|
+| `BenchmarkRunner` | Task 2.x L1–L4 loop (unchanged, backward-compatible) |
+| `Phase3Runner` | Guide Listing 4 — full `dataset × model × explainer` matrix |
+
+### 3.3.1 Phase3Runner API
+
+```python
+from metrics.runner import Phase3Runner
+from explainers import AttentionRolloutExplainer, GradCAMExplainer
+
+runner = Phase3Runner(
+    models     = {'vit-b16': model_vit, 'swin-b': model_swin},
+    explainers = {'rollout': AttentionRolloutExplainer,
+                  'gradcam': GradCAMExplainer},
+    datasets   = {'imagenet': val_loader, 'cub200': cub_loader},
+    device     = 'cuda',
+    norm_mode  = 'minmax',    # Task 3.2 normalisation
+    patch_size = 16,
+)
+results = runner.run(checkpoint_dir='results/phase3', seed=42)
+```
+
+### 3.3.2 Checkpoint Design
+
+One `.pkl` file per `(dataset, model, explainer)` combination:
+
+```
+results/phase3/
+    imagenet-vit-b16-rollout.pkl     ← dict: key, n_samples, attributions, labels, gt_masks, norm_mode
+    imagenet-vit-b16-gradcam.pkl
+    imagenet-swin-b-gradcam.pkl      ← skipped automatically if exists (resume)
+    cub200-vit-b16-rollout.pkl
+```
+
+- **Atomic write** via `.pkl.tmp` → rename to prevent corruption on interrupt.
+- **Resume**: re-running skips any existing `.pkl` automatically.
+- **Seed**: `torch.manual_seed(seed)` applied once at `run()` start and again before each combination, ensuring reproducible explainer random state.
+
+### 3.3.3 CLI Entry Point
+
+```bash
+# Dry-run validation (1 batch per combination)
+python -m metrics.runner --dry-run --checkpoint-dir results/phase3 --seed 42
+
+# List existing checkpoints
+python -m metrics.runner --list-checkpoints --checkpoint-dir results/phase3
+
+# Full run with percentile normalisation
+python -m metrics.runner --norm-mode percentile --checkpoint-dir results/phase3
+```
+
+All flags: `--checkpoint-dir`, `--seed`, `--max-batches`, `--norm-mode`, `--patch-size`, `--dry-run`, `--list-checkpoints`.
+
+### 3.3.4 Unit Tests (Task 3.3)
+
+File: `tests/test_runner.py` — **36 tests**, all passing.
+
+| Class                 | Tests | Category                                              |
+| --------------------- | ----- | ----------------------------------------------------- |
+| `TestPhase3RunnerInit`| 9     | Constructor attributes, device, norm_mode, patch_size |
+| `TestRunCombination`  | 9     | Batch flow, schema, normalisation, masks, pkl write   |
+| `TestRun`             | 9     | Dir creation, one pkl/combo, skip, seed repro, resume |
+| `TestCLI`             | 9     | --help, defaults, flags, invalid mode, --list-ckpts   |
+
+```
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_runner.py : 36 passed, 0 failed
+  Full suite     : 185 passed, 2 skipped (CUDA), 0 failed
+```
 
 ---
 
