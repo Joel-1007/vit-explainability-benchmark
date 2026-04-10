@@ -1,8 +1,8 @@
 """
-test_robustness.py  —  Task 2.3 §4 Unit Tests
-==============================================
-16 unit tests covering R1–R3 and the two model-utility functions,
-across five categories:
+test_robustness.py  —  Task 2.3 §4 Unit Tests  (+2.3 Addendum)
+==============================================================
+19 unit tests covering R1–R3, model utilities, and the Spearman
+layer-curve (guide §R3 reporting requirement), across six categories:
 
 Category A — Bounds (all metrics → [0, 1] on random inputs)
   R01  max_sensitivity_nonneg          MaxSens ≥ 0 for 20 random trials
@@ -25,10 +25,10 @@ Category D — Utility functions
   R12  randomise_labels_only_head       backbone unchanged; head weight changes
   R13  ssim_self_consistency            _ssim(t, t) = 1.0
 
-Category E — Edge cases and contracts
-  R14  spearman_constant_map            constant attribution map → |ρ| ≈ 1 (all tied ranks)
-  R15  max_sensitivity_n_samples_one    n_samples=1 works; no crash
-  R16  epsilon_constructor_validation   epsilon ≤ 0 raises ValueError
+Category F — Spearman Layer Curve (Task 2.3 Addendum)
+  R17  spearman_layer_curve_keys      keys ordered last-block → first-block
+  R18  randomise_model_cascade_depth  only last N blocks changed; first intact
+  R19  layer_curve_rho_bounds         every ρ value in [-1, 1]; no NaN
 
 Run with:
     pytest tests/test_robustness.py -v
@@ -53,6 +53,7 @@ from metrics.robustness import (
     RobustnessMetrics,
     randomise_model_weights,
     randomise_classifier_labels,
+    randomise_model_cascade,
     _ssim,
     _spearman_corr,
 )
@@ -71,6 +72,27 @@ def _register(fn):
 # ---------------------------------------------------------------------------
 # Shared fixtures
 # ---------------------------------------------------------------------------
+
+# A tiny block-structured model for R17–R19 (has 'blocks' ModuleList)
+class _BlockModel(nn.Module):
+    """
+    3-block sequential model with a 'blocks' ModuleList.
+    Compatible with randomise_model_cascade and spearman_layer_curve.
+    """
+    def __init__(self):
+        super().__init__()
+        self.blocks = nn.ModuleList([
+            nn.Linear(16, 16),
+            nn.Linear(16, 16),
+            nn.Linear(16, 16),
+        ])
+        self.head = nn.Linear(16, 10)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for blk in self.blocks:
+            x = torch.relu(blk(x.float()))
+        return self.head(x)
+
 
 # A tiny Linear-only model that is structurally simple enough to test all
 # utility functions without requiring a real ViT or downloading weights.
@@ -501,6 +523,96 @@ def R16_epsilon_constructor_validation():
 
 
 # ===========================================================================
+# CATEGORY F: Spearman Layer Curve (Task 2.3 Addendum)
+# ===========================================================================
+
+@_register
+def R17_spearman_layer_curve_keys():
+    """
+    spearman_layer_curve() must return L keys in order from last block
+    to first — i.e. blocks.2, blocks.1, blocks.0 for a 3-block model.
+    """
+    model     = _BlockModel()
+    explainer = _make_explainer(fixed_map=None)
+    image     = torch.randn(3, 14, 14)
+    att_orig  = torch.rand(14, 14)
+
+    rm_curve = RobustnessMetrics(epsilon=0.05, n_samples=1, seed=0)
+    curve    = rm_curve.spearman_layer_curve(
+        explainer, model, image, att_orig, block_attr="blocks"
+    )
+
+    # Must have exactly L=3 entries
+    assert len(curve) == 3, f"Expected 3 keys, got {len(curve)}: {list(curve.keys())}"
+
+    expected_keys = ["blocks.2", "blocks.1", "blocks.0"]
+    assert list(curve.keys()) == expected_keys, (
+        f"Key order mismatch: {list(curve.keys())} vs {expected_keys}"
+    )
+    print(f"R17 ✓  spearman_layer_curve_keys  (keys={list(curve.keys())})")
+
+
+@_register
+def R18_randomise_model_cascade_depth():
+    """
+    randomise_model_cascade(model, n) must change parameters in the last n
+    blocks and leave the first (L - n) blocks UNCHANGED.
+
+    We verify for n=1: blocks[2] differs, blocks[0] and blocks[1] are intact.
+    """
+    model      = _BlockModel()
+    rand_model = randomise_model_cascade(model, n_layers_to_randomise=1, seed=42)
+
+    # Last block (index 2) must have changed
+    for (p_orig, p_rand) in zip(
+        model.blocks[2].parameters(),
+        rand_model.blocks[2].parameters(),
+    ):
+        assert not torch.allclose(p_orig, p_rand), (
+            "Last block should have been randomised"
+        )
+
+    # First two blocks must be identical
+    for blk_idx in [0, 1]:
+        for (p_orig, p_rand) in zip(
+            model.blocks[blk_idx].parameters(),
+            rand_model.blocks[blk_idx].parameters(),
+        ):
+            assert torch.allclose(p_orig, p_rand), (
+                f"Block {blk_idx} should be UNCHANGED after cascading n=1"
+            )
+
+    print("R18 ✓  randomise_model_cascade_depth  (n=1: block[2] changed, [0],[1] intact)")
+
+
+@_register
+def R19_layer_curve_rho_bounds():
+    """
+    Every ρ value returned by spearman_layer_curve() must be in [-1, 1]
+    and must not be NaN.  This ensures numerical stability of the Spearman
+    implementation across all cascade depths.
+    """
+    model     = _BlockModel()
+    explainer = _make_explainer(fixed_map=None)
+    image     = torch.randn(3, 14, 14)
+    att_orig  = torch.rand(14, 14)
+
+    rm_curve = RobustnessMetrics(epsilon=0.05, n_samples=1, seed=7)
+    curve    = rm_curve.spearman_layer_curve(
+        explainer, model, image, att_orig, block_attr="blocks"
+    )
+
+    for key, rho in curve.items():
+        assert not math.isnan(rho), f"ρ for {key} is NaN"
+        assert -1.0 - 1e-6 <= rho <= 1.0 + 1e-6, (
+            f"ρ for {key} out of [-1, 1]: {rho:.4f}"
+        )
+
+    rho_str = ", ".join(f"{k}={v:.2f}" for k, v in curve.items())
+    print(f"R19 ✓  layer_curve_rho_bounds  ({rho_str})")
+
+
+# ===========================================================================
 # Runner
 # ===========================================================================
 
@@ -508,7 +620,7 @@ def _run_all_tests() -> None:
     passed = 0
     failed = 0
     print(f"\n{'='*60}")
-    print("Task 2.3 §4 — RobustnessMetrics Unit Tests")
+    print("Task 2.3 + Addendum — RobustnessMetrics Unit Tests")
     print(f"{'='*60}\n")
 
     for name, fn in _TESTS:

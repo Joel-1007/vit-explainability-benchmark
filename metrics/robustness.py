@@ -6,12 +6,15 @@ Implements the three robustness metrics R1–R3 defined in Task 2.3 §1.
 R1  max_sensitivity        — worst-case perturbation response (Yeh et al., 2019)
 R2  model_randomisation    — SSIM-based weight-scramble sanity check (Adebayo et al., 2018)
 R3  label_randomisation    — Spearman rank-corr under classifier-head permutation
+R3+ spearman_layer_curve   — per-layer ρ curve (cascading randomisation, guide §R3)
 
-Also exports two model-utility functions:
+Also exports three model-utility functions:
 
     randomise_model_weights(model)       — deep-copy; all params ← N(0, 1)
     randomise_classifier_labels(model)   — deep-copy; only final Linear head
                                            weights are column-permuted
+    randomise_model_cascade(model, n)    — deep-copy; last n transformer
+                                           blocks randomised (cascading)
 
 Design principles
 -----------------
@@ -370,6 +373,87 @@ def randomise_classifier_labels(
     return shuf_model
 
 
+def randomise_model_cascade(
+    model:               nn.Module,
+    n_layers_to_randomise: int,
+    seed:                int   = 0,
+    block_attr:          str   = "blocks",
+) -> nn.Module:
+    """
+    Return a deep-copy of `model` with the **last `n_layers_to_randomise`
+    transformer blocks** re-initialised from N(0, 1).
+
+    Blocks are located via `model.<block_attr>`, a ModuleList or Sequential.
+    Randomisation is applied to blocks at indices
+    ``[n_total - n_layers_to_randomise, n_total)`` (i.e. from the last
+    block backwards) — the cascading protocol used by Adebayo et al. (2018).
+
+    Parameters
+    ----------
+    model                 : any nn.Module with a block-structured backbone.
+    n_layers_to_randomise : number of blocks to randomise (1 = last only).
+    seed                  : integer seed for reproducibility.
+    block_attr            : attribute name of the block container.  Tried in
+                            order: the given name, then 'blocks', 'layers'.
+                            For Swin-B use 'layers' (stage-level containers).
+
+    Returns
+    -------
+    nn.Module — independent deep copy.  Only the last N blocks are
+    randomised; the rest of the backbone is intact.
+
+    Raises
+    ------
+    AttributeError : if no block container is found under any alias.
+    ValueError     : if n_layers_to_randomise < 1.
+    """
+    if n_layers_to_randomise < 1:
+        raise ValueError(
+            f"n_layers_to_randomise must be ≥ 1, got {n_layers_to_randomise}."
+        )
+
+    rand_model = copy.deepcopy(model)
+
+    # Locate the block container (ModuleList / Sequential)
+    _BLOCK_ALIASES = (block_attr, "blocks", "layers")
+    container = None
+    for alias in _BLOCK_ALIASES:
+        # Support dotted paths like 'encoder.layers'
+        obj = rand_model
+        try:
+            for part in alias.split("."):
+                obj = getattr(obj, part)
+            if hasattr(obj, "__len__"):   # ModuleList / Sequential
+                container = obj
+                break
+        except AttributeError:
+            continue
+
+    if container is None:
+        raise AttributeError(
+            f"Could not locate a block container on model "
+            f"{type(model).__name__}.  Tried aliases: {_BLOCK_ALIASES}.  "
+            "Pass the correct block attribute name via block_attr=."
+        )
+
+    blocks  = list(container)          # ordered list of nn.Module
+    n_total = len(blocks)
+    n_rand  = min(n_layers_to_randomise, n_total)   # clamp
+    start   = n_total - n_rand
+
+    gen = torch.Generator()
+    gen.manual_seed(seed)
+    with torch.no_grad():
+        for block in blocks[start:]:
+            for name, param in block.named_parameters():
+                if "bias" in name:
+                    nn.init.zeros_(param)
+                else:
+                    nn.init.normal_(param, mean=0.0, std=1.0)
+
+    return rand_model
+
+
 # ---------------------------------------------------------------------------
 # Main class
 # ---------------------------------------------------------------------------
@@ -648,6 +732,120 @@ class RobustnessMetrics:
             "model_randomisation": self.model_randomisation(att_orig, att_rand),
             "label_randomisation": self.label_randomisation(att_orig, att_shuf),
         }
+
+    # ------------------------------------------------------------------
+    # R3+ — Spearman Layer Curve (guide §R3 reporting requirement)
+    # ------------------------------------------------------------------
+
+    def spearman_layer_curve(
+        self,
+        explainer:  "Callable",
+        model:      nn.Module,
+        image:      torch.Tensor,
+        att_orig:   torch.Tensor,
+        block_attr: str = "blocks",
+    ) -> Dict[str, float]:
+        """
+        R3+ — Spearman rank-correlation curve across transformer blocks.
+
+        Cascading randomisation protocol (Adebayo et al., 2018)
+        --------------------------------------------------------
+        For a model with L transformer blocks, iterate n = 1, 2, …, L:
+          1. Create a cascade-randomised copy of the model where the last
+             n blocks are re-initialised from N(0, 1); the first (L-n)
+             blocks retain their trained weights.
+          2. Run the explainer on this cascade model to get att_cascade.
+          3. Compute Spearman ρ(att_orig, att_cascade).
+
+        The result is a dict mapping block labels to ρ values:
+          { 'blocks.11': ρ₁, 'blocks.10': ρ₂, ..., 'blocks.0': ρ_L }
+
+        Interpretation:
+          • ρ near 1 after randomising only the last block → the
+            explanation relies almost entirely on earlier layers.
+          • ρ near 0 after randomising all blocks → the explanation is
+            faithful to the full model's computation.
+          • The shape of the curve (slow vs. abrupt drop) characterises
+            which layers are most attribution-relevant.
+
+        Parameters
+        ----------
+        explainer  : callable — same interface as max_sensitivity.
+        model      : nn.Module (original, trained).
+        image      : (C, H, W) or (1, C, H, W) — one sample.
+        att_orig   : (H_a, W_a) — pre-computed attribution for `image`.
+        block_attr : attribute name of the transformer block container.
+                     Default 'blocks' (ViT, DeiT, BEiT, DINO, DINOv2).
+                     For Swin-B use 'layers'.
+
+        Returns
+        -------
+        dict[str, float] — ordered from last block (n=1) to first (n=L).
+        Key format: f"{block_attr}.{block_index}"
+        e.g. {'blocks.11': 0.91, 'blocks.10': 0.83, ..., 'blocks.0': 0.04}
+
+        Notes
+        -----
+        This method makes L explainer calls (one per block depth) so it
+        is significantly more expensive than other metrics.  For 12-block
+        ViT models it makes 12 calls per image.  Use on a small subset.
+        """
+        # Locate block container to determine L
+        _BLOCK_ALIASES = (block_attr, "blocks", "layers")
+        container = None
+        for alias in _BLOCK_ALIASES:
+            obj = model
+            try:
+                for part in alias.split("."):
+                    obj = getattr(obj, part)
+                if hasattr(obj, "__len__"):
+                    container = obj
+                    block_attr = alias   # use the alias that worked
+                    break
+            except AttributeError:
+                continue
+
+        if container is None:
+            raise AttributeError(
+                f"Could not locate block container (tried {_BLOCK_ALIASES}). "
+                "For Swin-B, pass block_attr='layers'."
+            )
+
+        n_blocks = len(list(container))
+        att_base = _to_2d(att_orig).float()
+
+        img = image.float()
+        if img.dim() == 3:
+            img = img.unsqueeze(0)   # (1, C, H, W)
+
+        curve: Dict[str, float] = {}
+        for n in range(1, n_blocks + 1):
+            seed = self._rng.randint(0, 2 ** 31 - 1)
+            cascade = randomise_model_cascade(
+                model,
+                n_layers_to_randomise=n,
+                seed=seed,
+                block_attr=block_attr,
+            )
+            att_c = self._call_explainer(explainer, cascade, img)
+            att_c = _to_2d(att_c).float()
+
+            # Align spatial resolution if necessary
+            if att_c.shape != att_base.shape:
+                import torch.nn.functional as _F
+                att_c = _F.interpolate(
+                    att_c.unsqueeze(0).unsqueeze(0),
+                    size=att_base.shape,
+                    mode="bilinear",
+                    align_corners=False,
+                ).squeeze(0).squeeze(0)
+
+            rho = _spearman_corr(att_base, att_c)
+            # Key: which block was the FIRST to be randomised
+            key = f"{block_attr}.{n_blocks - n}"
+            curve[key] = rho
+
+        return curve
 
     # ------------------------------------------------------------------
     # Internal helper
