@@ -1,37 +1,37 @@
 """
 test_explainers.py  —  Phase 3 Task 3.1 Unit Tests
 ====================================================
-27 tests across 8 categories, all using a fast MockViT (no timm download).
+27 pytest tests across 8 categories, all using a fast MockViT (no timm download).
 
-Category A — Shape (7 tests, E01–E07)
+Category A — Shape (7 tests)
     Each explainer returns exactly (P, P) where P = img_size // patch_size.
 
-Category B — No NaN / Inf (7 tests, E08–E14)
+Category B — No NaN / Inf (7 tests)
     torch.isfinite(output).all() must hold for every explainer.
 
-Category C — Batch consistency (3 tests, E15–E17)
+Category C — Batch consistency (3 tests)
     explain_batch result must match looped explain calls (E1, E2, E3).
 
-Category D — Spatial variation (3 tests, E18–E20)
+Category D — Spatial variation (3 tests)
     Output std > 0 for non-trivial inputs (E1, E5, E6 specifically).
 
-Category E — Swin-B UnsupportedArchitectureError (2 tests, E21–E22)
+Category E — Swin-B UnsupportedArchitectureError (2 tests)
     E1 (RawAttention) and E2 (Rollout) raise the right exception.
 
-Category F — RISE-specific (2 tests, E23–E24)
+Category F — RISE-specific (2 tests)
     Non-negative output; shape correctness at small resolution.
 
-Category G — LIME-specific (2 tests, E25–E26)
+Category G — LIME-specific (2 tests)
     Finite output; regression produces S=P² coefficients.
 
-Category H — DIME placeholder (1 test, E27)
+Category H — DIME placeholder (1 test)
     DIMEExplainer.explain() raises NotImplementedError with a message
     that references BENCHMARK.md §3.1.
 
 Run with:
-    python tests/test_explainers.py
-    # or
     pytest tests/test_explainers.py -v
+    # or directly:
+    python tests/test_explainers.py
 """
 
 from __future__ import annotations
@@ -41,6 +41,7 @@ import sys
 import traceback
 from pathlib import Path
 
+import pytest
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
@@ -62,13 +63,13 @@ from explainers import (
 # Mock models
 # ===========================================================================
 
-IMG_SIZE   = 16    # tiny test image (fast)
-PATCH_SIZE = 4     # 4×4 patches → P = 4 → output (4, 4)
-P          = IMG_SIZE // PATCH_SIZE   # = 4
-N_PATCHES  = P * P                   # = 16
-N_TOKENS   = N_PATCHES + 1           # +1 for CLS
-DIM        = 32
-NUM_HEADS  = 4
+IMG_SIZE    = 16    # tiny test image (fast)
+PATCH_SIZE  = 4     # 4×4 patches → P = 4 → output (4, 4)
+P           = IMG_SIZE // PATCH_SIZE   # = 4
+N_PATCHES   = P * P                   # = 16
+N_TOKENS    = N_PATCHES + 1           # +1 for CLS
+DIM         = 32
+NUM_HEADS   = 4
 NUM_CLASSES = 5
 
 
@@ -181,7 +182,7 @@ class _MockSwinB(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-# Shared instances
+# Shared module-level instances (created once, reused across all tests)
 # ---------------------------------------------------------------------------
 torch.manual_seed(0)
 _vit   = _MockViT().eval()
@@ -191,137 +192,107 @@ _label = 2
 
 
 # ===========================================================================
-# Test registry
-# ===========================================================================
-_TESTS: list[tuple[str, callable]] = []
-
-
-def _register(fn):
-    _TESTS.append((fn.__name__, fn))
-    return fn
-
-
-# ===========================================================================
 # CATEGORY A: Shape — each explainer returns (P, P)
 # ===========================================================================
 
-@_register
-def E01_raw_attention_shape():
+def test_E01_raw_attention_shape():
+    """E01: RawAttentionExplainer output shape is (P, P)."""
     e   = RawAttentionExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E01 ✓  raw_attention_shape  {out.shape}")
 
 
-@_register
-def E02_rollout_shape():
+def test_E02_rollout_shape():
+    """E02: AttentionRolloutExplainer output shape is (P, P)."""
     e   = AttentionRolloutExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E02 ✓  rollout_shape  {out.shape}")
 
 
-@_register
-def E03_gradcam_shape():
+def test_E03_gradcam_shape():
+    """E03: GradCAMExplainer output shape is (P, P)."""
     e   = GradCAMExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E03 ✓  gradcam_shape  {out.shape}")
 
 
-@_register
-def E04_chefer_lrp_shape():
+def test_E04_chefer_lrp_shape():
+    """E04: CheferLRPExplainer output shape is (P, P)."""
     e   = CheferLRPExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E04 ✓  chefer_lrp_shape  {out.shape}")
 
 
-@_register
-def E05_rise_shape():
+def test_E05_rise_shape():
+    """E05: RISEExplainer output shape is (P, P)."""
     e   = RISEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_masks=50, chunk_size=10, seed=0)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E05 ✓  rise_shape  {out.shape}")
 
 
-@_register
-def E06_lime_shape():
+def test_E06_lime_shape():
+    """E06: LIMEExplainer output shape is (P, P)."""
     e   = LIMEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_samples=20, seed=0)
     out = e.explain(_img, _label)
     assert out.shape == (P, P), f"Expected ({P},{P}), got {out.shape}"
-    print(f"E06 ✓  lime_shape  {out.shape}")
 
 
-@_register
-def E07_dime_shape_not_tested_pending():
-    """DIMEExplainer raises NotImplementedError — shape test skipped with note."""
+def test_E07_dime_shape_not_tested_pending():
+    """E07: DIMEExplainer raises NotImplementedError — shape test skipped with note."""
     e = DIMEExplainer(_vit, patch_size=PATCH_SIZE)
-    raised = False
-    try:
+    with pytest.raises(NotImplementedError):
         e.explain(_img, _label)
-    except NotImplementedError:
-        raised = True
-    assert raised, "DIMEExplainer.explain() should raise NotImplementedError"
-    print("E07 ✓  dime_raises_not_implemented  [shape test pending resolution]")
 
 
 # ===========================================================================
 # CATEGORY B: No NaN / Inf
 # ===========================================================================
 
-@_register
-def E08_raw_attention_no_nan():
+def test_E08_raw_attention_no_nan():
+    """E08: RawAttentionExplainer output contains no NaN or Inf."""
     e   = RawAttentionExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"RawAttention output contains NaN/Inf: {out}"
-    print("E08 ✓  raw_attention_no_nan")
 
 
-@_register
-def E09_rollout_no_nan():
+def test_E09_rollout_no_nan():
+    """E09: AttentionRolloutExplainer output contains no NaN or Inf."""
     e   = AttentionRolloutExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"Rollout output contains NaN/Inf: {out}"
-    print("E09 ✓  rollout_no_nan")
 
 
-@_register
-def E10_gradcam_no_nan():
+def test_E10_gradcam_no_nan():
+    """E10: GradCAMExplainer output contains no NaN or Inf."""
     e   = GradCAMExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"GradCAM output contains NaN/Inf: {out}"
-    print("E10 ✓  gradcam_no_nan")
 
 
-@_register
-def E11_chefer_lrp_no_nan():
+def test_E11_chefer_lrp_no_nan():
+    """E11: CheferLRPExplainer output contains no NaN or Inf."""
     e   = CheferLRPExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"CheferLRP output contains NaN/Inf: {out}"
-    print("E11 ✓  chefer_lrp_no_nan")
 
 
-@_register
-def E12_rise_no_nan():
+def test_E12_rise_no_nan():
+    """E12: RISEExplainer output contains no NaN or Inf."""
     e   = RISEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_masks=30, chunk_size=10, seed=0)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"RISE output contains NaN/Inf: {out}"
-    print("E12 ✓  rise_no_nan")
 
 
-@_register
-def E13_lime_no_nan():
+def test_E13_lime_no_nan():
+    """E13: LIMEExplainer output contains no NaN or Inf."""
     e   = LIMEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_samples=20, seed=0)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"LIME output contains NaN/Inf: {out}"
-    print("E13 ✓  lime_no_nan")
 
 
-@_register
-def E14_dime_no_nan_pending():
-    """Not tested — DIMEExplainer is a pending placeholder."""
-    print("E14 –  dime_no_nan  [SKIP — pending resolution of DIME guide inconsistency]")
+def test_E14_dime_no_nan_pending():
+    """E14: Not tested — DIMEExplainer is a pending placeholder (documented skip)."""
+    pytest.skip("DIME is a placeholder pending guide inconsistency resolution")
 
 
 # ===========================================================================
@@ -345,142 +316,117 @@ def _batch_consistency_check(explainer, atol: float = 1e-4) -> None:
     )
 
 
-@_register
-def E15_raw_attention_batch_consistency():
+def test_E15_raw_attention_batch_consistency():
+    """E15: RawAttentionExplainer.explain_batch matches looped explain."""
     e = RawAttentionExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     _batch_consistency_check(e)
-    print("E15 ✓  raw_attention_batch_consistency")
 
 
-@_register
-def E16_rollout_batch_consistency():
+def test_E16_rollout_batch_consistency():
+    """E16: AttentionRolloutExplainer.explain_batch matches looped explain."""
     e = AttentionRolloutExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     _batch_consistency_check(e)
-    print("E16 ✓  rollout_batch_consistency")
 
 
-@_register
-def E17_gradcam_batch_consistency():
+def test_E17_gradcam_batch_consistency():
+    """E17: GradCAMExplainer.explain_batch matches looped explain (loose tol)."""
     e = GradCAMExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     _batch_consistency_check(e, atol=1e-3)  # gradient methods: slightly looser
-    print("E17 ✓  gradcam_batch_consistency")
 
 
 # ===========================================================================
 # CATEGORY D: Spatial variation (output std > 0)
 # ===========================================================================
 
-@_register
-def E18_raw_attention_has_variation():
+def test_E18_raw_attention_has_variation():
+    """E18: RawAttentionExplainer output has spatial variation (std > 0)."""
     torch.manual_seed(42)
     e   = RawAttentionExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
     out = e.explain(torch.rand(3, IMG_SIZE, IMG_SIZE), _label)
     assert out.std() > 0, "RawAttention output is constant (zero variation)"
-    print(f"E18 ✓  raw_attention_has_variation  (std={out.std():.4f})")
 
 
-@_register
-def E19_rise_has_variation():
+def test_E19_rise_has_variation():
+    """E19: RISEExplainer output has spatial variation (std > 0)."""
     torch.manual_seed(43)
     e   = RISEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_masks=100, chunk_size=20, seed=0)
     out = e.explain(torch.rand(3, IMG_SIZE, IMG_SIZE), _label)
     assert out.std() > 0, "RISE output is constant (zero variation)"
-    print(f"E19 ✓  rise_has_variation  (std={out.std():.4f})")
 
 
-@_register
-def E20_lime_has_variation():
+def test_E20_lime_has_variation():
+    """E20: LIMEExplainer output has spatial variation (std > 0)."""
     torch.manual_seed(44)
     e   = LIMEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_samples=50, seed=1)
     out = e.explain(torch.rand(3, IMG_SIZE, IMG_SIZE), _label)
     assert out.std() > 0, "LIME output is constant (zero variation)"
-    print(f"E20 ✓  lime_has_variation  (std={out.std():.4f})")
 
 
 # ===========================================================================
 # CATEGORY E: Swin-B raises UnsupportedArchitectureError
 # ===========================================================================
 
-@_register
-def E21_raw_attention_swin_raises():
+def test_E21_raw_attention_swin_raises():
+    """E21: RawAttentionExplainer raises UnsupportedArchitectureError on Swin-B."""
     e = RawAttentionExplainer(_swin, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
-    raised = False
-    try:
+    with pytest.raises(UnsupportedArchitectureError):
         e.explain(_img, _label)
-    except UnsupportedArchitectureError:
-        raised = True
-    assert raised, "RawAttentionExplainer should raise for Swin-B"
-    print("E21 ✓  raw_attention_swin_raises  UnsupportedArchitectureError")
 
 
-@_register
-def E22_rollout_swin_raises():
+def test_E22_rollout_swin_raises():
+    """E22: AttentionRolloutExplainer raises UnsupportedArchitectureError on Swin-B."""
     e = AttentionRolloutExplainer(_swin, patch_size=PATCH_SIZE, img_size=IMG_SIZE)
-    raised = False
-    try:
+    with pytest.raises(UnsupportedArchitectureError):
         e.explain(_img, _label)
-    except UnsupportedArchitectureError:
-        raised = True
-    assert raised, "AttentionRolloutExplainer should raise for Swin-B"
-    print("E22 ✓  rollout_swin_raises  UnsupportedArchitectureError")
 
 
 # ===========================================================================
 # CATEGORY F: RISE-specific
 # ===========================================================================
 
-@_register
-def E23_rise_nonnegative():
-    """RISE saliency = weighted sum of masked probabilities → must be ≥ 0."""
+def test_E23_rise_nonnegative():
+    """E23: RISE saliency = weighted sum of masked probabilities → output ≥ 0."""
     e   = RISEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_masks=50, chunk_size=10, seed=5)
     out = e.explain(_img, _label)
     assert out.min().item() >= -1e-6, f"RISE output has negative values: min={out.min():.6f}"
-    print(f"E23 ✓  rise_nonnegative  (min={out.min():.4f})")
 
 
-@_register
-def E24_rise_mask_count_attribute():
-    """RISEExplainer stores pre-generated masks with the correct count."""
+def test_E24_rise_mask_count_attribute():
+    """E24: RISEExplainer pre-generates the correct number of masks."""
     n = 80
     e = RISEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_masks=n, chunk_size=10, seed=0)
     assert e._masks.shape[0] == n, (
         f"Expected {n} masks, got {e._masks.shape[0]}"
     )
-    print(f"E24 ✓  rise_mask_count_attribute  ({n} masks stored)")
 
 
 # ===========================================================================
 # CATEGORY G: LIME-specific
 # ===========================================================================
 
-@_register
-def E25_lime_output_finite():
-    """LIME coefficients must be finite for any non-degenerate input."""
+def test_E25_lime_output_finite():
+    """E25: LIME coefficients must be finite for any non-degenerate input."""
     e   = LIMEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_samples=30, seed=2)
     out = e.explain(_img, _label)
     assert torch.isfinite(out).all(), f"LIME output not finite: {out}"
-    print("E25 ✓  lime_output_finite")
 
 
-@_register
-def E26_lime_coef_count():
-    """LIME must return exactly S = P² coefficients reshaped to (P, P)."""
+def test_E26_lime_coef_count():
+    """E26: LIME must return exactly P² coefficients reshaped to (P, P)."""
     e   = LIMEExplainer(_vit, patch_size=PATCH_SIZE, img_size=IMG_SIZE, n_samples=30, seed=3)
     out = e.explain(_img, _label)
     assert out.numel() == P * P, (
         f"LIME should return {P*P} coefficients, returned {out.numel()}"
     )
-    print(f"E26 ✓  lime_coef_count  ({out.numel()} = {P}×{P})")
 
 
 # ===========================================================================
 # CATEGORY H: DIME placeholder
 # ===========================================================================
 
-@_register
-def E27_dime_placeholder_documented():
+def test_E27_dime_placeholder_documented():
     """
-    DIMEExplainer must:
+    E27: DIMEExplainer must:
     1. Import without error.
     2. Raise NotImplementedError with a message mentioning BENCHMARK.md.
     3. Have is_resolved == False.
@@ -492,30 +438,53 @@ def E27_dime_placeholder_documented():
     )
 
     error_msg = ""
-    try:
+    with pytest.raises(NotImplementedError) as exc_info:
         e.explain(_img, _label)
-    except NotImplementedError as exc:
-        error_msg = str(exc)
+    error_msg = str(exc_info.value)
 
     assert "BENCHMARK.md" in error_msg, (
         "DIMEExplainer error message should reference BENCHMARK.md"
     )
     assert len(error_msg) > 50, "Error message should be informative"
 
-    print(
-        "E27 ✓  dime_placeholder_documented  "
-        "(is_resolved=False, NotImplementedError raised, BENCHMARK.md referenced)"
-    )
-
 
 # ===========================================================================
-# Runner
+# Standalone runner (python tests/test_explainers.py)
 # ===========================================================================
+
+_TESTS = [
+    ("E01", test_E01_raw_attention_shape),
+    ("E02", test_E02_rollout_shape),
+    ("E03", test_E03_gradcam_shape),
+    ("E04", test_E04_chefer_lrp_shape),
+    ("E05", test_E05_rise_shape),
+    ("E06", test_E06_lime_shape),
+    ("E07", test_E07_dime_shape_not_tested_pending),
+    ("E08", test_E08_raw_attention_no_nan),
+    ("E09", test_E09_rollout_no_nan),
+    ("E10", test_E10_gradcam_no_nan),
+    ("E11", test_E11_chefer_lrp_no_nan),
+    ("E12", test_E12_rise_no_nan),
+    ("E13", test_E13_lime_no_nan),
+    ("E14", test_E14_dime_no_nan_pending),
+    ("E15", test_E15_raw_attention_batch_consistency),
+    ("E16", test_E16_rollout_batch_consistency),
+    ("E17", test_E17_gradcam_batch_consistency),
+    ("E18", test_E18_raw_attention_has_variation),
+    ("E19", test_E19_rise_has_variation),
+    ("E20", test_E20_lime_has_variation),
+    ("E21", test_E21_raw_attention_swin_raises),
+    ("E22", test_E22_rollout_swin_raises),
+    ("E23", test_E23_rise_nonnegative),
+    ("E24", test_E24_rise_mask_count_attribute),
+    ("E25", test_E25_lime_output_finite),
+    ("E26", test_E26_lime_coef_count),
+    ("E27", test_E27_dime_placeholder_documented),
+]
+
 
 def _run_all_tests() -> None:
-    passed = 0
-    failed = 0
-    skipped = 0
+    passed = failed = skipped = 0
 
     print(f"\n{'='*62}")
     print("Phase 3 Task 3.1 — Explainer Interface Tests")
@@ -524,16 +493,18 @@ def _run_all_tests() -> None:
     for name, fn in _TESTS:
         try:
             fn()
+            print(f"  ✓ {name}")
             passed += 1
+        except pytest.skip.Exception:
+            print(f"  – {name}  [SKIP]")
+            skipped += 1
         except Exception:
-            failed += 1
-            print(f"FAIL  {name}")
+            print(f"  ✗ {name}  FAILED")
             traceback.print_exc()
-            print()
+            failed += 1
 
     print(f"\n{'='*62}")
-    print(f"Results: {passed}/{passed + failed} passed, {failed} failed")
-    print(f"  Note: E14 is a documented skip (DIME pending)")
+    print(f"Results: {passed} passed, {skipped} skipped, {failed} failed")
     print(f"{'='*62}\n")
 
     if failed:

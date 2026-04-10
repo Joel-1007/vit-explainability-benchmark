@@ -23,6 +23,10 @@
 | [2.3](#23--robustness-metrics-r1r3)               | Robustness Metrics (R1–R3)        | ✅          |
 | [2.4](#24--complexity-metrics-c1c3)               | Complexity Metrics (C1–C3)        | ✅          |
 | [2.5](#25--axiomatic-analysis)                    | Axiomatic Analysis                | ✅          |
+| [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | 🔄 In Progress |
+| [3.1](#31--standardised-explainer-interface)      | Standardised Explainer Interface  | ✅          |
+| [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ⬜ Planned  |
+| [3.3](#33--benchmarkrunner)                       | BenchmarkRunner                   | ⬜ Planned  |
 | [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
 | [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
 | [Appendix C](#appendix-c--master-checklist)       | Master Checklist                  | —           |
@@ -1103,6 +1107,129 @@ results = runner.evaluate(model, val_loader, dataset_name="cub200")
 
 ---
 
+# Phase 3 — Baseline Evaluation Pipeline
+
+Phase 3 wraps the 13 metrics (F1–F4, L1–L4, R1–R4, C1–C3) and 7 explainers (E1–E7)
+into a **single reproducible evaluation command** with:
+- Fixed random seeds (per-run seed logged in metadata)
+- Checkpoint-and-resume for long GPU runs
+- Unified CSV output that feeds directly into Phase 4 result tables
+
+> [!IMPORTANT]
+> Every number in the TPAMI result tables **must come from this pipeline** with
+> fixed seeds. Do not manually insert numbers computed outside this framework.
+
+---
+
+## 3.1 Standardised Explainer Interface
+
+All 7 explainers share a common `BaseExplainer` contract defined in
+`explainers/base.py`.
+
+### 3.1.1 BaseExplainer Contract
+
+```python
+from explainers.base import BaseExplainer
+
+class MyExplainer(BaseExplainer):
+    def explain(self, x: torch.Tensor, target_class: int, **kwargs) -> torch.Tensor:
+        # x: (3, H, W) float32 in [0, 1]
+        # returns: (H // patch_size, W // patch_size) float32 tensor
+        ...
+```
+
+Key invariants:
+- Output shape is always `(H_img // patch_size, W_img // patch_size)`.
+- Values are **un-normalised** (raw attribution scores; normalisation is Task 3.2).
+- `explain_batch(xs, target_classes)` defaults to a loop; override for amortised methods.
+- `UnsupportedArchitectureError` is raised by E1/E2/E4 on models without a global CLS token (Swin-B).
+
+### 3.1.2 Explainer Index
+
+| #   | Class                        | Method                     | File                  | Swin-B | Note                           |
+| --- | ---------------------------- | -------------------------- | --------------------- | ------ | ------------------------------ |
+| E1  | `RawAttentionExplainer`      | Raw CLS attention          | `raw_attention.py`    | ✗      | Last block, mean over heads    |
+| E2  | `AttentionRolloutExplainer`  | Attention Rollout          | `rollout.py`          | ✗      | Recursive Â product            |
+| E3  | `GradCAMExplainer`           | GradCAM                    | `gradcam.py`          | ✓      | Hook-based, ReLU gated         |
+| E4  | `CheferLRPExplainer`         | Chefer et al. LRP          | `chefer_lrp.py`       | ✗      | Pure-PyTorch reimplementation  |
+| E5  | `RISEExplainer`              | RISE (Petsiuk et al. 2018) | `rise.py`             | ✓      | 4000 float16 masks; chunked    |
+| E6  | `LIMEExplainer`              | LIME (patch-grid)          | `lime.py`             | ✓      | Ridge regression on P² patches |
+| E7  | `DIMEExplainer`              | DIME                       | `dime.py`             | —      | ⚠ Placeholder (see below)     |
+
+> [!NOTE]
+> **E7 — DIME Guide Inconsistency.** The implementation guide lists DIME as
+> Explainer 7, but DIME (Differently Interpreted Multimodal Explanations) is a
+> VQA/multimodal method that does not produce spatial attribution maps for
+> single-image ViT classification. `DIMEExplainer` is a documented placeholder
+> that raises `NotImplementedError` referencing this section. Deviation will be
+> documented in the paper's Appendix.
+
+### 3.1.3 Design Decisions
+
+**E4 — CheferLRP:** Pure-PyTorch reimplementation (not a wrapper of the
+original repo). The guide allows "implement or wrap" and self-contained code is
+more auditable and dependency-free for TPAMI reproducibility review.
+
+**E5 — RISE vectorisation:** Pre-generates all M=4000 masks as float16
+`(M, 1, H, W)` at `__init__` time. Inference loops over chunks of 100, giving
+~40 forward passes instead of 4000 serial passes. Consistent with the guide's
+*"vectorise over mask dimension"* requirement.
+
+**Gradient handling:** Outer `torch.no_grad()` context + inner
+`torch.enable_grad()` for gradient methods (GradCAM, CheferLRP). Hook cleanup
+is guaranteed via `try … finally: hook.remove()`.
+
+### 3.1.4 Unit Tests (Task 3.1)
+
+File: `tests/test_explainers.py` — **26 tests passing, 1 documented skip**
+(E14: DIME no-NaN test, pending guide resolution).
+
+| Category  | Tests | What is tested                                              |
+| --------- | ----- | ----------------------------------------------------------- |
+| A – Shape | 7     | Every explainer returns exactly `(P, P)` shape              |
+| B – Finite| 7     | `torch.isfinite(output).all()` for all explainers           |
+| C – Batch | 3     | `explain_batch` ≡ loop over `explain` (E1, E2, E3)          |
+| D – Var   | 3     | Output `std > 0` on non-trivial input (E1, E5, E6)          |
+| E – Swin  | 2     | E1/E2 raise `UnsupportedArchitectureError` on `_MockSwinB`  |
+| F – RISE  | 2     | Non-negative output; mask count stored correctly            |
+| G – LIME  | 2     | Finite output; exactly P² = 16 coefficients                 |
+| H – DIME  | 1     | `is_resolved=False`; `NotImplementedError` ∋ "BENCHMARK.md" |
+
+```
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_explainers.py : 26 passed, 1 skipped (E14 documented), 0 failed
+```
+
+### 3.1.5 Production Notes
+
+| Concern              | Recommendation                                                  |
+| -------------------- | --------------------------------------------------------------- |
+| RISE cost (M=4000)   | Sub-sample to 500 val images per model; report in table footnote |
+| LIME cost            | `n_samples=500` for production; 20 for dev/CI                   |
+| Seed reproducibility | Pass `seed=42` to E5, E6; fix `torch.manual_seed` before each run |
+| Swin-B explainers    | Use E3 (GradCAM) only; E1/E2/E4 auto-raise at runtime           |
+
+---
+
+## 3.2 Attribution Normalisation
+
+> [!NOTE]
+> **Status: Planned.** normalise each attribution map to a common range before
+> computing fidelity and localization metrics. Modes: `minmax` (default),
+> `percentile_clip(p=1)`, `softmax`. Will be implemented as
+> `metrics/normalize.py` with tests in `tests/test_normalize.py`.
+
+---
+
+## 3.3 BenchmarkRunner
+
+> [!NOTE]
+> **Status: Planned.** Extension of `metrics/runner.py` to include all 13
+> metrics + 7 explainers + checkpointing (pickle-based) + deterministic seed
+> injection. CLI: `python -m benchmark.run --config configs/run.yaml`.
+
+---
+
 # Appendix A — Project Layout
 
 ```
@@ -1284,7 +1411,25 @@ vit-explainability-benchmark/
 ☑ verify_dummy_axiom() — empirical A1 approximation via patch masking
 ☑ verify_rollout_dummy_violation() — empirical Theorem T3 check
 ☑ generate_axiom_satisfaction_heatmap() — Figure F1 PDF
-☑ 21 unit tests — tests/test_axiom_verifier.py — 21 passing
+☑ 20 unit tests — tests/test_axiom_verifier.py — 20 passing
+☑ 7 PyTorch tests — tests/test_torch_axioms.py — 7 passing (1 CUDA skip)
 ☑ metrics/__init__.py updated — torch-free imports first
 ☑ pyproject.toml created — uv project (Python 3.13)
+
+### Phase 3 — Task 3.1 Checklist
+```
+☑ BaseExplainer ABC — explain(x, target_class) → (P, P) tensor contract
+☑ explain_batch() default loop; overridable for amortised methods
+☑ UnsupportedArchitectureError — raised by E1/E2/E4 on Swin-B
+☑ _get_timm_blocks(), _has_cls_token(), _to_patch_grid() — shared helpers
+☑ _capture_attn_weights() — fused_attn-safe attention hook
+☑ E1 RawAttentionExplainer — last-block CLS row, mean over heads (explainers/raw_attention.py)
+☑ E2 AttentionRolloutExplainer — recursive A-hat product, drop-residual option (explainers/rollout.py)
+☑ E3 GradCAMExplainer — gradient hooks, ReLU, bilinear upsample (explainers/gradcam.py)
+☑ E4 CheferLRPExplainer — pure-PyTorch LRP, attn + mlp contrib layers (explainers/chefer_lrp.py)
+☑ E5 RISEExplainer — 4000 float16 masks pre-generated; chunked batching (explainers/rise.py)
+☑ E6 LIMEExplainer — patch-grid superpixels, ridge regression (explainers/lime.py)
+☑ E7 DIMEExplainer — placeholder stub, NotImplementedError + BENCHMARK.md ref (explainers/dime.py)
+☑ 26 unit tests passing + 1 documented skip — tests/test_explainers.py
+☑ Full test suite: 125 passed, 2 skipped, 0 failed (2026-04-10)
 ```
