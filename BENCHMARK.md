@@ -20,8 +20,11 @@
 | [1.4](#14--reproducibility-infrastructure) | Reproducibility Infrastructure | ✅ |
 | [Phase 2](#phase-2--metrics-suite) | Metrics Suite | ✅ Complete |
 | [2.1](#21--fidelity-metrics-f1f3) | Fidelity Metrics (F1–F3) | ✅ |
-| [2.2](#22--localization-metrics-l1l4) | Localization Metrics (L1–L4) | ✅ |
-| [2.3](#23--robustness-metrics-r1r3) | Robustness Metrics (R1–R3) | ✅ |
+| [2.2](#22--localization-metrics-l1l4) | Localization Metrics (L1–L4) · 12 tests | ✅ |
+| [2.3](#23--robustness-metrics-r1r3) | Robustness Metrics (R1–R3 + Layer Curve) · 19 tests | ✅ |
+| [2.4](#24--complexity-metrics-c1c3) | Complexity Metrics (C1–C3) · 12 tests | ✅ |
+| [2.5](#25--benchmarkrunner--unified-evaluation-loop) | BenchmarkRunner — Unified Evaluation Loop | ✅ |
+| [2.6](#26--axiomatic-analysis) | Axiomatic Analysis · 8 property-based tests | ✅ |
 | [Appendix A](#appendix-a--project-layout) | Project Layout | — |
 | [Appendix B](#appendix-b--complete-metric-index) | Complete Metric Index | — |
 | [Appendix C](#appendix-c--master-checklist) | Master Checklist | — |
