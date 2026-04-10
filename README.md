@@ -26,7 +26,7 @@ The framework systematically evaluates spatial interpretation methods across fou
 1. **Localization (L1–L4):** Does the explanation highlight the object of interest? (mIoU, Pointing Game, EGT, CalibGap).
 2. **Robustness (R1–R3):** How sensitive is the explanation to irrelevant input perturbations, model randomisation, and label randomisation? (MaxSens, ModelRand, LabelRand).
 3. **Complexity (C1–C3):** How parsimonious is the explanation? Are the decisive patches compact and easily understandable? (Gini, Entropy, Effective Mass Ratio).
-4. **Fidelity (F1–F3):** (Phase 3) Does removing the highlighted patches actually destroy the model's confidence? (Insertion/Deletion AUC, Comprehensiveness).
+4. **Fidelity (F1–F3):** Does removing the highlighted patches actually destroy the model's confidence? (Sufficiency, Comprehensiveness, Log-odds Drop).
 
 Furthermore, the suite includes an **Axiomatic Analysis Tool** (`AxiomVerifier`) to map every empirical metric against the four fundamental Shapley axioms (Dummy, Completeness, Symmetry, Linearity) to surface representational biases (e.g., Theorem T6: the anti-alignment of complexity and symmetry).
 
@@ -98,6 +98,7 @@ vit-explainability-benchmark/
 ├── model_zoo/               # Standardised ViT wrappers
 ├── training/                # Shared fine-tuning protocol (AdamW + Cosine + Mixup)
 ├── metrics/                 # The evaluation suite
+│   ├── fidelity.py          # F1–F3
 │   ├── localization.py      # L1–L4
 │   ├── robustness.py        # R1–R3
 │   ├── complexity.py        # C1–C3

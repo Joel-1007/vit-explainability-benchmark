@@ -4,7 +4,7 @@ metrics — ViT Explainability Benchmark
 Public API
 ----------
 Fidelity
-    (Phase 3 — FidelityMetrics class, not yet implemented)
+    FidelityMetrics              F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds
 
 Localization
     LocalizationMetrics          L1 mIoU, L2 Pointing Game, L3 EGT, L4 CalibGap
@@ -53,6 +53,7 @@ from .axiom_verifier import (
 # Torch-dependent submodules (require torch to be installed)
 # ---------------------------------------------------------------------------
 try:
+    from .fidelity import FidelityMetrics
     from .localization import LocalizationMetrics
     from .runner       import BenchmarkRunner
     from .robustness   import (
@@ -74,6 +75,8 @@ __all__ = [
     "AxiomTestResult",
     "verify_completeness",
     "generate_axiom_satisfaction_heatmap",
+    # Fidelity (requires torch)
+    "FidelityMetrics",
     # Localization (requires torch)
     "LocalizationMetrics",
     # Runner (requires torch)

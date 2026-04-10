@@ -206,6 +206,41 @@ after masking the top-$k$% attributed region.
 
 ---
 
+### 2.1.1 Implementation — `FidelityMetrics`
+
+```python
+from metrics.fidelity import FidelityMetrics
+
+fm = FidelityMetrics(mask_mode="zero", k_fractions=(0.1, 0.2, 0.5))
+
+# All three metrics in one call over fractions
+scores = fm.compute_all(model, images, targets, att_maps)
+# -> {'sufficiency@0.10': tensor([...]), 'comprehensiveness@0.10': tensor([...]), ...}
+
+# Or individually
+f1 = fm.sufficiency(model, images, targets, att_maps, k_frac=0.2)
+f2 = fm.comprehensiveness(model, images, targets, att_maps, k_frac=0.2)
+f3 = fm.log_odds_drop(model, images, targets, att_maps, k_frac=0.2)
+```
+
+### 2.1.2 Unit Tests (F1–F3)
+
+File: `tests/test_fidelity.py` — **5 tests**, all passing.
+
+| ID  | Test | Assertion |
+| --- | --- | --- |
+| F01 | `test_generate_mask` | Masks top `k_frac` elements correctly. |
+| F02 | `test_apply_mask_zero` | Selected regions retain content, others zeroed. |
+| F03 | `test_apply_mask_mean` | Drops selected regions, interpolates with baseline mean. |
+| F04 | `test_metrics_standalone` | Individual metrics execution shapes are correct. |
+| F05 | `test_compute_all` | Computes F1, F2, F3 recursively over configured fractions. |
+
+```
+Results: 5/5 passed, 0 failed
+```
+
+---
+
 ## 2.2 Localization Metrics (L1–L4)
 
 All four metrics operate on a pair $(e, M^{GT})$ where $e \in \mathbb{R}^{H \times W}$
