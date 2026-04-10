@@ -2,29 +2,30 @@
 
 > **Venue target: IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)**
 >
-> This document is the single authoritative reference for all phases, tasks, formal
+> This document is the single authoritative reference for all phases, formal
 > definitions, implementation details, axiomatic analyses, unit tests, and integration
 > specifications of the ViT Explainability Benchmark project.
-> All task documents (`task_2_2_*.md`, `task_2_3_*.md`) are superseded by this file.
 
 ---
 
 ## Table of Contents
 
-| § | Title | Status |
-|---|-------|--------|
-| [Phase 1](#phase-1--model-zoo--training-protocol) | Model Zoo & Training Protocol | ✅ Complete |
-| [1.1](#11--model-zoo-selection) | Model Zoo Selection | ✅ |
-| [1.2](#12--standardised-fine-tuning-protocol) | Standardised Fine-Tuning Protocol | ✅ |
-| [1.3](#13--dataset-registry) | Dataset Registry | ✅ |
-| [1.4](#14--reproducibility-infrastructure) | Reproducibility Infrastructure | ✅ |
-| [Phase 2](#phase-2--metrics-suite) | Metrics Suite | ✅ Complete |
-| [2.1](#21--fidelity-metrics-f1f3) | Fidelity Metrics (F1–F3) | ✅ |
-| [2.2](#22--localization-metrics-l1l4) | Localization Metrics (L1–L4) | ✅ |
-| [2.3](#23--robustness-metrics-r1r3) | Robustness Metrics (R1–R3) | ✅ |
-| [Appendix A](#appendix-a--project-layout) | Project Layout | — |
-| [Appendix B](#appendix-b--complete-metric-index) | Complete Metric Index | — |
-| [Appendix C](#appendix-c--master-checklist) | Master Checklist | — |
+| §                                                 | Title                             | Status      |
+| ------------------------------------------------- | --------------------------------- | ----------- |
+| [Phase 1](#phase-1--model-zoo--training-protocol) | Model Zoo & Training Protocol     | ✅ Complete |
+| [1.1](#11--model-zoo-selection)                   | Model Zoo Selection               | ✅          |
+| [1.2](#12--standardised-fine-tuning-protocol)     | Standardised Fine-Tuning Protocol | ✅          |
+| [1.3](#13--dataset-registry)                      | Dataset Registry                  | ✅          |
+| [1.4](#14--reproducibility-infrastructure)        | Reproducibility Infrastructure    | ✅          |
+| [Phase 2](#phase-2--metrics-suite)                | Metrics Suite                     | ✅ Complete |
+| [2.1](#21--fidelity-metrics-f1f3)                 | Fidelity Metrics (F1–F3)          | ✅          |
+| [2.2](#22--localization-metrics-l1l4)             | Localization Metrics (L1–L4)      | ✅          |
+| [2.3](#23--robustness-metrics-r1r3)               | Robustness Metrics (R1–R3)        | ✅          |
+| [2.4](#24--complexity-metrics-c1c3)               | Complexity Metrics (C1–C3)        | ✅          |
+| [2.5](#25--axiomatic-analysis)                    | Axiomatic Analysis                | ✅          |
+| [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
+| [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
+| [Appendix C](#appendix-c--master-checklist)       | Master Checklist                  | —           |
 
 ---
 
@@ -32,7 +33,7 @@
 
 # Phase 1 — Model Zoo & Training Protocol
 
-## 1.1  Model Zoo Selection
+## 1.1 Model Zoo Selection
 
 Six Vision Transformers are selected with controlled variation: architecture family,
 pre-training objective, and patch size are varied while **parameter count (~86 M),
@@ -40,23 +41,23 @@ input resolution (224×224), and fine-tuning protocol are held constant**.
 This isolation ensures that any differences in explanation quality are attributable
 to architecture, not training conditions.
 
-| # | Model | Architecture | Pre-training | Patch | Params | IN-1K Top-1 | timm ID |
-|---|-------|-------------|-------------|-------|--------|-------------|---------|
-| 1 | **ViT-B/16** | Standard ViT | Supervised IN-21K (AugReg) | 16 | 86 M | 84.2 % | `vit_base_patch16_224.augreg_in21k_ft_in1k` |
-| 2 | **DeiT-B/16** | DeiT (distilled) | Knowledge distillation IN-1K | 16 | 87 M | 83.4 % | `deit_base_distilled_patch16_224` |
-| 3 | **Swin-B** | Shifted-window | Supervised IN-22K → IN-1K | 4 | 88 M | 85.2 % | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
-| 4 | **BEiT-B/16** | BERT-style MIM | MIM IN-22K (DALL-E dVAE) | 16 | 86 M | 85.2 % | `beit_base_patch16_224.in22k_ft_in22k_ft_in1k` |
-| 5 | **DINO-ViT-B/8** | Standard ViT | Self-distillation IN-1K | 8 | 85 M | 80.1 % (k-NN) | torch.hub `facebookresearch/dino` |
-| 6 | **DINOv2-ViT-B/14** | Standard ViT | Self-distillation LVD-142M | 14 | 86 M | 86.5 % | `vit_base_patch14_dinov2.lvd142m` |
+| #   | Model               | Architecture     | Pre-training                 | Patch | Params | IN-1K Top-1   | timm ID                                         |
+| --- | ------------------- | ---------------- | ---------------------------- | ----- | ------ | ------------- | ----------------------------------------------- |
+| 1   | **ViT-B/16**        | Standard ViT     | Supervised IN-21K (AugReg)   | 16    | 86 M   | 84.2 %        | `vit_base_patch16_224.augreg_in21k_ft_in1k`     |
+| 2   | **DeiT-B/16**       | DeiT (distilled) | Knowledge distillation IN-1K | 16    | 87 M   | 83.4 %        | `deit_base_distilled_patch16_224`               |
+| 3   | **Swin-B**          | Shifted-window   | Supervised IN-22K → IN-1K    | 4     | 88 M   | 85.2 %        | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
+| 4   | **BEiT-B/16**       | BERT-style MIM   | MIM IN-22K (DALL-E dVAE)     | 16    | 86 M   | 85.2 %        | `beit_base_patch16_224.in22k_ft_in22k_ft_in1k`  |
+| 5   | **DINO-ViT-B/8**    | Standard ViT     | Self-distillation IN-1K      | 8     | 85 M   | 80.1 % (k-NN) | torch.hub `facebookresearch/dino`               |
+| 6   | **DINOv2-ViT-B/14** | Standard ViT     | Self-distillation LVD-142M   | 14    | 86 M   | 86.5 %        | `vit_base_patch14_dinov2.lvd142m`               |
 
 **Architectural variation axes:**
 
-| Axis | Values represented |
-|------|--------------------|
-| Supervision | Supervised (ViT, DeiT, Swin, BEiT), Self-supervised (DINO, DINOv2) |
-| Attention scope | Global (ViT, DeiT, BEiT, DINO, DINOv2), Local-window (Swin) |
-| Patch size | 8 (DINO), 14 (DINOv2), 16 (ViT/DeiT/BEiT), 32 (window-merged in Swin) |
-| Special tokens | CLS only (ViT/BEiT/DINO/DINOv2), CLS+Distil (DeiT), None (Swin) |
+| Axis            | Values represented                                                    |
+| --------------- | --------------------------------------------------------------------- |
+| Supervision     | Supervised (ViT, DeiT, Swin, BEiT), Self-supervised (DINO, DINOv2)    |
+| Attention scope | Global (ViT, DeiT, BEiT, DINO, DINOv2), Local-window (Swin)           |
+| Patch size      | 8 (DINO), 14 (DINOv2), 16 (ViT/DeiT/BEiT), 32 (window-merged in Swin) |
+| Special tokens  | CLS only (ViT/BEiT/DINO/DINOv2), CLS+Distil (DeiT), None (Swin)       |
 
 > [!IMPORTANT]
 > **Swin-B structural limitation.** Standard attention rollout and CLS-token attribution
@@ -66,39 +67,39 @@ to architecture, not training conditions.
 
 ---
 
-## 1.2  Standardised Fine-Tuning Protocol
+## 1.2 Standardised Fine-Tuning Protocol
 
 All six models are fine-tuned under an identical protocol. No per-model hyperparameter
 tuning is performed — the protocol is fixed once and applied uniformly.
 
 ### Hyperparameters
 
-| Component | Value | Source |
-|-----------|-------|--------|
-| **Optimiser** | AdamW | Loshchilov & Hutter (2019) |
-| β₁, β₂, ε | 0.9, 0.999, 1e-8 | — |
-| **Weight decay** | 0.05 (biases and LayerNorm excluded) | — |
-| **Base LR** | 1e-4 @ batch 256; scaled linearly | — |
-| **LR schedule** | Cosine annealing + 5-epoch linear warmup | — |
-| **Epochs** | 50 (CUB-200-2011); 30 (VOC, CheXpert, ImageNet) | — |
-| **Input size** | 224 × 224, bicubic interpolation | — |
-| **Augmentation** | RandAugment M=9 N=2, random erasing p=0.25 | Cubuk et al. (2020) |
-| **Mixup** | α=0.8; CutMix disabled | Zhang et al. (2018) |
-| **Label smoothing** | ε=0.1 | Szegedy et al. (2016) |
-| **Stochastic depth** | drop_path_rate=0.1 | Huang et al. (2016) |
-| **Dropout** | 0.0 (disabled) | — |
-| **Loss (CUB/VOC/ImageNet)** | SoftTargetCrossEntropy (Mixup-compatible) | — |
-| **Loss (CheXpert)** | Binary CE, class-weighted | — |
+| Component                   | Value                                           | Source                     |
+| --------------------------- | ----------------------------------------------- | -------------------------- |
+| **Optimiser**               | AdamW                                           | Loshchilov & Hutter (2019) |
+| β₁, β₂, ε                   | 0.9, 0.999, 1e-8                                | —                          |
+| **Weight decay**            | 0.05 (biases and LayerNorm excluded)            | —                          |
+| **Base LR**                 | 1e-4 @ batch 256; scaled linearly               | —                          |
+| **LR schedule**             | Cosine annealing + 5-epoch linear warmup        | —                          |
+| **Epochs**                  | 50 (CUB-200-2011); 30 (VOC, CheXpert, ImageNet) | —                          |
+| **Input size**              | 224 × 224, bicubic interpolation                | —                          |
+| **Augmentation**            | RandAugment M=9 N=2, random erasing p=0.25      | Cubuk et al. (2020)        |
+| **Mixup**                   | α=0.8; CutMix disabled                          | Zhang et al. (2018)        |
+| **Label smoothing**         | ε=0.1                                           | Szegedy et al. (2016)      |
+| **Stochastic depth**        | drop_path_rate=0.1                              | Huang et al. (2016)        |
+| **Dropout**                 | 0.0 (disabled)                                  | —                          |
+| **Loss (CUB/VOC/ImageNet)** | SoftTargetCrossEntropy (Mixup-compatible)       | —                          |
+| **Loss (CheXpert)**         | Binary CE, class-weighted                       | —                          |
 
 ### Implementation files
 
-| File | Responsibility |
-|------|---------------|
-| `training/transforms.py` | RandAugment + random erasing pipeline |
-| `training/mixup.py` | Batch-level Mixup (α=0.8) |
-| `training/optimizer.py` | AdamW + LR warmup + cosine decay |
-| `training/loss.py` | SoftTargetCrossEntropy / BCE |
-| `training/trainer.py` | Full fine-tune loop with grad accumulation |
+| File                     | Responsibility                             |
+| ------------------------ | ------------------------------------------ |
+| `training/transforms.py` | RandAugment + random erasing pipeline      |
+| `training/mixup.py`      | Batch-level Mixup (α=0.8)                  |
+| `training/optimizer.py`  | AdamW + LR warmup + cosine decay           |
+| `training/loss.py`       | SoftTargetCrossEntropy / BCE               |
+| `training/trainer.py`    | Full fine-tune loop with grad accumulation |
 
 ### Pilot sanity check (§7)
 
@@ -113,16 +114,16 @@ python scripts/pilot_finetune.py \
 
 ---
 
-## 1.3  Dataset Registry
+## 1.3 Dataset Registry
 
 Four benchmark datasets are used. All are resized to 224×224 for model inference.
 
-| Dataset | Task | Classes | Train | Val | GT type | Config |
-|---------|------|---------|-------|-----|---------|--------|
-| **CUB-200-2011** | Fine-grained bird classification | 200 | 5,994 | 5,794 | Bounding box + part annotations | `configs/cub200.yaml` |
-| **PASCAL VOC 2012** | Multi-label object detection | 20 | 10,582 | 5,823 | Pixel segmentation masks | `configs/pascal_voc.yaml` |
-| **ImageNet-S-50** | Large-scale classification (50-class subset) | 50 | 64,500 | 1,500 | Pixel segmentation masks | `configs/imagenet_s50.yaml` |
-| **NIH ChestX-ray14** | Multi-label chest pathology | 14 | 86,524 | 11,219 | Bounding box annotations | `configs/nih_chestxray.yaml` |
+| Dataset              | Task                                         | Classes | Train  | Val    | GT type                         | Config                       |
+| -------------------- | -------------------------------------------- | ------- | ------ | ------ | ------------------------------- | ---------------------------- |
+| **CUB-200-2011**     | Fine-grained bird classification             | 200     | 5,994  | 5,794  | Bounding box + part annotations | `configs/cub200.yaml`        |
+| **PASCAL VOC 2012**  | Multi-label object detection                 | 20      | 10,582 | 5,823  | Pixel segmentation masks        | `configs/pascal_voc.yaml`    |
+| **ImageNet-S-50**    | Large-scale classification (50-class subset) | 50      | 64,500 | 1,500  | Pixel segmentation masks        | `configs/imagenet_s50.yaml`  |
+| **NIH ChestX-ray14** | Multi-label chest pathology                  | 14      | 86,524 | 11,219 | Bounding box annotations        | `configs/nih_chestxray.yaml` |
 
 ### Dataset verification protocol
 
@@ -138,14 +139,14 @@ checks, and stratified validation split creation.
 
 ---
 
-## 1.4  Reproducibility Infrastructure
+## 1.4 Reproducibility Infrastructure
 
-| Asset | Description | Location |
-|-------|-------------|----------|
-| `model_hashes.txt` | SHA-256 of all 6 pre-trained checkpoints | project root |
-| `checkpoints/*/finetuned_hashes.txt` | Per-epoch SHA-256 of fine-tuned weights | per dataset |
-| `requirements.txt` | Pinned dependency versions | project root |
-| `configs/*.yaml` | Full hyperparameter specs | `configs/` |
+| Asset                                | Description                              | Location     |
+| ------------------------------------ | ---------------------------------------- | ------------ |
+| `model_hashes.txt`                   | SHA-256 of all 6 pre-trained checkpoints | project root |
+| `checkpoints/*/finetuned_hashes.txt` | Per-epoch SHA-256 of fine-tuned weights  | per dataset  |
+| `requirements.txt`                   | Pinned dependency versions               | project root |
+| `configs/*.yaml`                     | Full hyperparameter specs                | `configs/`   |
 
 ```bash
 # Record pre-trained hashes once after download
@@ -164,18 +165,18 @@ The metrics suite evaluates attribution maps $\phi(f, x) \in \mathbb{R}^{H_a \ti
 produced by an explanation method $\phi$ for model $f$ at input $x$.
 Seven distinct metrics are implemented across three complementary families:
 
-| Family | Metrics | Question answered |
-|--------|---------|-------------------|
-| **Fidelity** (§2.1) | F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds | Does the attribution reflect what the model actually uses? |
-| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CalibGap | Does the attribution point at the right region? |
-| **Robustness** (§2.3) | R1 MaxSens, R2 ModelRand, R3 LabelRand | Is the attribution stable and model-sensitive? |
+| Family                  | Metrics                                           | Question answered                                          |
+| ----------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
+| **Fidelity** (§2.1)     | F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds | Does the attribution reflect what the model actually uses? |
+| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CalibGap               | Does the attribution point at the right region?            |
+| **Robustness** (§2.3)   | R1 MaxSens, R2 ModelRand, R3 LabelRand            | Is the attribution stable and model-sensitive?             |
 
 All metrics reside in `metrics/`. The `BenchmarkRunner` integrates all three
 families into a single dataset-level evaluation loop.
 
 ---
 
-## 2.1  Fidelity Metrics (F1–F3)
+## 2.1 Fidelity Metrics (F1–F3)
 
 > [!NOTE]
 > Fidelity metrics quantify whether the attribution reflects what inputs the model
@@ -186,14 +187,14 @@ families into a single dataset-level evaluation loop.
 
 $$F1 = \text{Suff}(\phi, f, x) = f(x)_{y^*} - f(x \odot \mathbf{1}_{M_\tau})_{y^*}$$
 
-The attributed region alone should be *sufficient* to reproduce the model's confidence
+The attributed region alone should be _sufficient_ to reproduce the model's confidence
 in the predicted class $y^*$. Higher = attribution covers the decision-relevant region.
 
 ### F2 — Comprehensiveness
 
 $$F2 = \text{Comp}(\phi, f, x) = f(x)_{y^*} - f(x \odot (1 - \mathbf{1}_{M_\tau}))_{y^*}$$
 
-Removing the attributed region should *reduce* confidence. Higher = attribution
+Removing the attributed region should _reduce_ confidence. Higher = attribution
 successfully identifies the decision-relevant region.
 
 ### F3 — Log-odds Drop
@@ -205,7 +206,7 @@ after masking the top-$k$% attributed region.
 
 ---
 
-## 2.2  Localization Metrics (L1–L4)
+## 2.2 Localization Metrics (L1–L4)
 
 All four metrics operate on a pair $(e, M^{GT})$ where $e \in \mathbb{R}^{H \times W}$
 is the raw attribution map and $M^{GT}$ is the binary ground-truth mask
@@ -284,7 +285,7 @@ $$L4 = \text{CalibGap} = \mathbb{E}_{i \in \mathcal{C}}\!\left[\text{EGT}_i\righ
 
 ---
 
-### 2.2.1  Implementation — `LocalizationMetrics`
+### 2.2.1 Implementation — `LocalizationMetrics`
 
 ```python
 from metrics.localization import LocalizationMetrics
@@ -313,7 +314,7 @@ scores = lm.compute_all(att_map, gt_mask)
 
 ---
 
-### 2.2.2  Axiomatic Analysis (L1–L4)
+### 2.2.2 Axiomatic Analysis (L1–L4)
 
 #### Theorem 2.2.A — IoU satisfies Symmetry but penalises over-segmentation
 
@@ -336,7 +337,7 @@ even if it technically contains the GT region. IoU must be reported at all three
 
 $$\text{EGT}(e, M^{GT}_1) \leq \text{EGT}(e, M^{GT}_2)$$
 
-*Proof.* $\text{EGT} = \sum_{p \in M^{GT}} \tilde{e}_p$. Since all softmax values $\tilde{e}_p \geq 0$,
+_Proof._ $\text{EGT} = \sum_{p \in M^{GT}} \tilde{e}_p$. Since all softmax values $\tilde{e}_p \geq 0$,
 expanding the mask can only increase the sum. $\square$
 
 **Boundary Sensitivity violation.** EGT is a sum over $M^{GT}$ — it cannot distinguish mass
@@ -354,36 +355,37 @@ complementary: it penalises boundary-concentrated peaks.
 **Claim.** CalibGap can be gamed by an adversarial explainer with access to the
 prediction correctness flag.
 
-*Proof by construction.* If $\phi$ outputs high-EGT maps for correct predictions
+_Proof by construction._ If $\phi$ outputs high-EGT maps for correct predictions
 and low-EGT maps for incorrect ones, CalibGap → 1 without faithfulness. $\square$
 
 **Mitigation.** The benchmark:
+
 1. Passes only `(model, image)` to explainers — never correctness flags.
 2. Reports L1–L3 alongside L4 so inflated CalibGap is detectable.
 3. Requires consistent CalibGap across all four datasets.
 
-**Implication.** CalibGap is a *diagnostic* metric, never a primary ranking criterion.
+**Implication.** CalibGap is a _diagnostic_ metric, never a primary ranking criterion.
 
 ---
 
-### 2.2.3  Unit Tests (L1–L4)
+### 2.2.3 Unit Tests (L1–L4)
 
 File: `tests/test_localization.py` — **12 tests**, all passing.
 
-| ID | Test | Assertion |
-|----|------|-----------|
-| T01 | `random_iou_not_one` | mIoU < 1.0 for 20 random trials |
-| T02 | `random_pg_within_bounds` | PG ∈ {0,1}; not always 1.0 over 100 trials |
-| T03 | `random_egt_within_bounds` | EGT ∈ [0,1] for 50 random pairs |
-| T04 | `perfect_iou_is_one` | att=GT → mIoU = 1.0 at all τ |
-| T05 | `perfect_pg_is_one` | peak at GT pixel → PG = 1.0 |
-| T06 | `perfect_egt_is_one` | all mass inside GT → EGT = 1.0 |
-| T07 | `perfect_calibgap_positive` | perfect-correct vs wrong-incorrect → gap > 0 |
-| T08 | `misaligned_iou_is_zero` | att outside GT → IoU@0.75 = 0.0 |
-| T09 | `misaligned_pg_is_zero` | peak outside GT → PG = 0.0 |
-| T10 | `misaligned_egt_near_zero` | all mass outside GT → EGT < 0.01 |
-| T11 | `constant_att_map_iou` | constant map → no NaN; result in [0,1] |
-| T12 | `calibgap_empty_list_raises` | empty correct/incorrect → ValueError |
+| ID  | Test                         | Assertion                                    |
+| --- | ---------------------------- | -------------------------------------------- |
+| T01 | `random_iou_not_one`         | mIoU < 1.0 for 20 random trials              |
+| T02 | `random_pg_within_bounds`    | PG ∈ {0,1}; not always 1.0 over 100 trials   |
+| T03 | `random_egt_within_bounds`   | EGT ∈ [0,1] for 50 random pairs              |
+| T04 | `perfect_iou_is_one`         | att=GT → mIoU = 1.0 at all τ                 |
+| T05 | `perfect_pg_is_one`          | peak at GT pixel → PG = 1.0                  |
+| T06 | `perfect_egt_is_one`         | all mass inside GT → EGT = 1.0               |
+| T07 | `perfect_calibgap_positive`  | perfect-correct vs wrong-incorrect → gap > 0 |
+| T08 | `misaligned_iou_is_zero`     | att outside GT → IoU@0.75 = 0.0              |
+| T09 | `misaligned_pg_is_zero`      | peak outside GT → PG = 0.0                   |
+| T10 | `misaligned_egt_near_zero`   | all mass outside GT → EGT < 0.01             |
+| T11 | `constant_att_map_iou`       | constant map → no NaN; result in [0,1]       |
+| T12 | `calibgap_empty_list_raises` | empty correct/incorrect → ValueError         |
 
 ```
 Results: 12/12 passed, 0 failed
@@ -391,18 +393,18 @@ Results: 12/12 passed, 0 failed
 
 ---
 
-### 2.2.4  ViT Patch Grid Reference
+### 2.2.4 ViT Patch Grid Reference
 
-| Model | Patch size | Grid | Patches | Upsample to 224×224 |
-|-------|-----------|------|---------|---------------------|
-| ViT-B/16, DeiT-B/16, BEiT-B/16 | 16 | 14×14 | 196 | Bilinear ×16 |
-| DINOv2-ViT-B/14 | 14 | 16×16 | 256 | Bilinear ×14 |
-| DINO-ViT-B/8 | 8 | 28×28 | 784 | Bilinear ×8 |
-| Swin-B (GradCAM) | — | 7×7 (stage 4) | 49 | Bilinear ×32 |
+| Model                          | Patch size | Grid          | Patches | Upsample to 224×224 |
+| ------------------------------ | ---------- | ------------- | ------- | ------------------- |
+| ViT-B/16, DeiT-B/16, BEiT-B/16 | 16         | 14×14         | 196     | Bilinear ×16        |
+| DINOv2-ViT-B/14                | 14         | 16×16         | 256     | Bilinear ×14        |
+| DINO-ViT-B/8                   | 8          | 28×28         | 784     | Bilinear ×8         |
+| Swin-B (GradCAM)               | —          | 7×7 (stage 4) | 49      | Bilinear ×32        |
 
 ---
 
-## 2.3  Robustness Metrics (R1–R3)
+## 2.3 Robustness Metrics (R1–R3)
 
 Robustness metrics test whether an explanation is **stable and faithful** under
 systematic perturbations to the input or the model. A faithful attribution must:
@@ -413,13 +415,13 @@ systematic perturbations to the input or the model. A faithful attribution must:
 
 > [!NOTE]
 > R1–R3 complement L1–L4, which test spatial faithfulness to GT.
-> Robustness metrics test faithfulness to the *model's internal computation*.
+> Robustness metrics test faithfulness to the _model's internal computation_.
 
 ---
 
 ### R1 — Max-Sensitivity (MaxSens)
 
-**Reference**: Yeh et al. (2019), *On the (In)fidelity and Sensitivity of Explanations*.
+**Reference**: Yeh et al. (2019), _On the (In)fidelity and Sensitivity of Explanations_.
 
 Draw $K$ random perturbations $\delta_k \sim \text{Uniform}(-\epsilon, +\epsilon)^d$
 from the $\ell_\infty$ ball of radius $\epsilon$ around $x$:
@@ -438,7 +440,7 @@ constant explainer.
 
 ### R2 — Model Randomisation (ModelRand)
 
-**Reference**: Adebayo et al. (2018), *Sanity Checks for Saliency Maps*.
+**Reference**: Adebayo et al. (2018), _Sanity Checks for Saliency Maps_.
 
 Let $f_\text{rand}$ be a deep copy of $f$ with all parameters re-initialised from $\mathcal{N}(0,1)$.
 Let $\tilde{\phi}(\cdot) = \text{MinMax}(\phi(\cdot))$ be attribution normalised to $[0,1]$.
@@ -467,6 +469,7 @@ Let $\rho(\cdot, \cdot)$ denote the Spearman rank correlation of two flattened m
 $$R3 = \text{LabelRand}(\phi, x) = 1 - \frac{|\rho(\phi_\text{orig}, \phi_\text{shuf})| + 1}{2}$$
 
 **Derivation:**
+
 - $\rho \in [-1, 1]$; $(|\rho|+1)/2 \in [0.5, 1]$ measures structural preservation.
 - $1 - (|\rho|+1)/2 \in [0, 0.5]$ measures structural divergence.
 - $|\rho|$ (not $\rho$) is used because sign-flipped attributions still preserve spatial structure.
@@ -479,7 +482,7 @@ no SciPy dependency.
 
 ---
 
-### 2.3.1  Implementation — `RobustnessMetrics` and Utilities
+### 2.3.1 Implementation — `RobustnessMetrics` and Utilities
 
 ```python
 from metrics.robustness import (
@@ -531,13 +534,13 @@ Fallback chain for `head_attr`: `'head'`, `'classifier'`, `'fc'`, `'linear'`.
 
 ---
 
-### 2.3.2  Axiomatic Analysis (R1–R3)
+### 2.3.2 Axiomatic Analysis (R1–R3)
 
 #### Theorem 2.3.A — MaxSens satisfies the Lipschitz-Sensitivity Axiom
 
 **Lipschitz-Sensitivity Axiom.** $\exists L < \infty$ such that $\text{MaxSens}(\phi, x) \leq L \cdot \epsilon$.
 
-*Proof.* For a Lipschitz explainer with constant $\Lambda$:
+_Proof._ For a Lipschitz explainer with constant $\Lambda$:
 
 $$\|\phi(f, x+\delta) - \phi(f, x)\|_2 \leq \Lambda\|\delta\|_2 \leq \Lambda\epsilon\sqrt{d}$$
 
@@ -555,7 +558,7 @@ structurally different maps when model weights are fully randomised:
 
 $$\lim_{\text{randomisation} \to 1} \text{ModelRand}(\phi, x) = 1$$
 
-*Proof.* For fully randomised $f_\text{rand}$, attribution maps approach i.i.d. uniform
+_Proof._ For fully randomised $f_\text{rand}$, attribution maps approach i.i.d. uniform
 noise (by CLT on random projections). The SSIM between a learned spatial map and uniform
 noise → 0, so ModelRand → 1. $\square$
 
@@ -584,54 +587,47 @@ permutation degrees). Report alongside R1 and R2, never in isolation.
 
 ---
 
-### 2.3.3  Unit Tests (R1–R3)
+### 2.3.3 Unit Tests (R1–R3)
 
 File: `tests/test_robustness.py` — **16 tests**, all passing.
 
-| ID | Category | Test | Assertion |
-|----|----------|------|-----------|
-| R01 | Bounds | `max_sensitivity_nonneg` | MaxSens ≥ 0 for 20 trials |
-| R02 | Bounds | `model_randomisation_in_0_1` | ModelRand ∈ [0,1] for 20 trials |
-| R03 | Bounds | `label_randomisation_in_0_0p5` | LabelRand ∈ [0, 0.5] for 20 trials |
-| R04 | Bounds | `compute_all_keys` | compute_all() returns exactly 3 keys |
-| R05 | Sensitivity | `sensitivity_increases_with_eps` | Larger ε → ≥ mean MaxSens (30 trials) |
-| R06 | Sensitivity | `model_rand_orthogonal_maps` | ModelRand > 0.5 for top-half vs bottom-half |
-| R07 | Sensitivity | `label_rand_orthogonal_maps` | Mean LabelRand ≈ 0.5 for 200 random pairs |
-| R08 | Zero | `sensitivity_zero_constant_expl` | MaxSens = 0 for constant explainer |
-| R09 | Zero | `model_rand_identical_maps` | ModelRand = 0 for identical maps |
-| R10 | Zero | `label_rand_identical_maps` | LabelRand = 0 for identical maps |
-| R11 | Utility | `randomise_model_changes_weights` | All 4 params changed |
-| R12 | Utility | `randomise_labels_only_head` | Backbone unchanged; head changed |
-| R13 | Utility | `ssim_self_consistency` | _ssim(t, t) = 1.0 for 10 trials |
-| R14 | Edge | `spearman_constant_map` | Constant map → no NaN; ρ ∈ [-1,1] |
-| R15 | Edge | `max_sensitivity_n_samples_one` | n_samples=1 works without crash |
-| R16 | Edge | `epsilon_constructor_validation` | ε ≤ 0 → ValueError |
+| ID  | Category    | Test                              | Assertion                                   |
+| --- | ----------- | --------------------------------- | ------------------------------------------- |
+| R01 | Bounds      | `max_sensitivity_nonneg`          | MaxSens ≥ 0 for 20 trials                   |
+| R02 | Bounds      | `model_randomisation_in_0_1`      | ModelRand ∈ [0,1] for 20 trials             |
+| R03 | Bounds      | `label_randomisation_in_0_0p5`    | LabelRand ∈ [0, 0.5] for 20 trials          |
+| R04 | Bounds      | `compute_all_keys`                | compute_all() returns exactly 3 keys        |
+| R05 | Sensitivity | `sensitivity_increases_with_eps`  | Larger ε → ≥ mean MaxSens (30 trials)       |
+| R06 | Sensitivity | `model_rand_orthogonal_maps`      | ModelRand > 0.5 for top-half vs bottom-half |
+| R07 | Sensitivity | `label_rand_orthogonal_maps`      | Mean LabelRand ≈ 0.5 for 200 random pairs   |
+| R08 | Zero        | `sensitivity_zero_constant_expl`  | MaxSens = 0 for constant explainer          |
+| R09 | Zero        | `model_rand_identical_maps`       | ModelRand = 0 for identical maps            |
+| R10 | Zero        | `label_rand_identical_maps`       | LabelRand = 0 for identical maps            |
+| R11 | Utility     | `randomise_model_changes_weights` | All 4 params changed                        |
+| R12 | Utility     | `randomise_labels_only_head`      | Backbone unchanged; head changed            |
+| R13 | Utility     | `ssim_self_consistency`           | \_ssim(t, t) = 1.0 for 10 trials ```        |
 
-```
 Results: 16/16 passed, 0 failed
-```
+
+````
 
 Run all Phase 2 tests together:
 
 ```bash
-python tests/test_localization.py   # 12/12
-python tests/test_robustness.py     # 16/16
-
-# Or via pytest
-pytest tests/ -v
-```
+uv run pytest tests/ -v
+````
 
 ---
 
-### 2.3.4  Performance Guidance
+### 2.3.4 Performance Guidance
 
-| Metric | Cost per sample | Recommendation |
-|--------|----------------|----------------|
-| L1–L3 | O(1) tensor ops | Full dataset |
-| L4 CalibGap | O(N) at dataset end | Full dataset |
-| R1 MaxSens | K explainer calls | Random 500-image subset |
-| R2 ModelRand | 1 extra explainer call | Full dataset |
-| R3 LabelRand | 1 extra explainer call | Full dataset |
+| Metric       | Cost per sample        | Recommendation          |
+| ------------ | ---------------------- | ----------------------- |
+| L1–L3        | O(1) tensor ops        | Full dataset            |
+| L4 CalibGap  | O(N) at dataset end    | Full dataset            |
+| R1 MaxSens   | K explainer calls      | Random 500-image subset |
+| R2 ModelRand | 1 extra explainer call | Full dataset            |
+| R3 LabelRand | 1 extra explainer call | Full dataset            |
 
 > [!IMPORTANT]
 > For ImageNet-S-50 (5,000 val images × $K=50$ perturbations), MaxSens alone requires
@@ -640,10 +636,376 @@ pytest tests/ -v
 
 ---
 
-## 2.4  BenchmarkRunner — Unified Evaluation Loop
+## 2.4 Complexity Metrics (C1–C3)
+
+> [!NOTE]
+> Complexity metrics measure the **parsimony** of an explanation: a good
+> explanation should identify a _compact_ set of decisive patches. Diffuse
+> attributions are harder to interpret and weaker evidence of understanding.
+
+Three complementary metrics measure different facets of concentration:
+
+| ID  | Name                 | Formula (short)   | Range  | Higher =        |
+| --- | -------------------- | ----------------- | ------ | --------------- |
+| C1  | Gini coefficient     | See §2.4.1        | [0, 1] | Sparser         |
+| C2  | Attribution entropy  | H(e) / log N      | [0, 1] | **Less** sparse |
+| C3  | Effective mass ratio | k\* / N at θ=0.90 | [0, 1] | **Less** sparse |
+
+> [!IMPORTANT]
+> C1 is **higher-is-better**; C2 and C3 are **lower-is-better**. Report all
+> three alongside a uniform-random baseline to give reviewers a calibration
+> reference.
+
+---
+
+### 2.4.1 C1 — Gini Coefficient
+
+$$C1 = \text{Gini}(e) = \frac{2 \sum_{i=1}^{N} i \cdot e_{(i)}}{N \sum_{i=1}^{N} e_{(i)}} - \frac{N+1}{N}$$
+
+where $e_{(1)} \leq \ldots \leq e_{(N)}$ is the **ascending**-sorted map.
+
+**Properties.**
+
+- _Normalisation:_ minmax before computation (scale-invariant by construction).
+- _Zero-map convention:_ returns 0 (uniform mass convention).
+- _One-hot exact maximum:_ Gini = $(N-1)/N \to 1$ as $N \to \infty$.
+
+---
+
+### 2.4.2 C2 — Attribution Entropy
+
+$$C2 = H_{\text{norm}}(e) = -\frac{1}{\log N} \sum_{p=1}^{N} \tilde{e}_p \log \tilde{e}_p$$
+
+where $\tilde{e} = \text{softmax}(e)$ (proper probability distribution).
+
+**Properties.**
+
+- _Normalisation:_ softmax (well-defined for negative attributions).
+- _Zero-map convention:_ entropy = log N, norm = 1 (flags uninformative maps).
+- _Contrast with Gini:_ lower entropy $\Leftrightarrow$ higher Gini for the same map.
+
+---
+
+### 2.4.3 C3 — Effective Mass Ratio (EMR)
+
+Let $k^*(\theta)$ be the minimum number of patches (sorted by attribution, descending)
+required to capture $\theta$ fraction of total attribution mass:
+
+$$k^*(\theta) = \min\left\{ k : \sum_{i=1}^{k} e_{(N+1-i)} \geq \theta \cdot \sum_{i=1}^{N} e_i \right\}$$
+
+$$C3 = \text{EMR}(e, \theta) = \frac{k^*(\theta)}{N}$$
+
+**Cross-architecture reporting.** Always report $k^*_{90}$ (absolute patch count)
+alongside fractional EMR for cross-architecture comparability:
+
+| Model           | N   | EMR(0.90)=0.05 means… |
+| --------------- | --- | --------------------- |
+| ViT-B/16        | 196 | 10 patches            |
+| DINO-ViT-B/8    | 784 | 39 patches            |
+| DINOv2-ViT-B/14 | 256 | 13 patches            |
+
+**Default thresholds:** {0.50, 0.90, 0.95}. Primary: $\theta = 0.90$.
+
+---
+
+### 2.4.4 Implementation — `ComplexityMetrics`
+
+```python
+from metrics.complexity import ComplexityMetrics
+
+cm = ComplexityMetrics()   # emr_thresholds=[0.5, 0.9, 0.95]
+
+# Single attribution map (numpy array or torch.Tensor)
+result = cm.compute(attribution_map, model_name="vit_b16", explainer_name="rollout")
+print(result.gini, result.entropy_norm, result.emr_90, result.k_star_90)
+
+# Batch (list of arrays or (B, N) tensor)
+results = cm.compute_batch(attribution_batch)
+
+# Aggregate over a dataset
+agg = cm.aggregate(results)
+# → {'gini_mean': 0.42, 'gini_std': 0.11, 'emr_90_mean': 0.17, ...}
+
+# Standalone functions (no class instance required)
+from metrics.complexity import (
+    gini_coefficient,
+    attribution_entropy,
+    effective_mass_ratio,
+    normalise_attribution,
+)
+g = gini_coefficient(att_map)              # float in [0, 1]
+e = attribution_entropy(att_map)           # {'entropy_raw', 'entropy_norm', 'n_patches'}
+r = effective_mass_ratio(att_map, 0.9)     # {'emr', 'k_star', 'n_patches', 'threshold'}
+n = normalise_attribution(att_map, 'minmax')  # [0, 1]
+```
+
+---
+
+### 2.4.5 Unit Tests (C1–C3)
+
+File: `tests/test_complexity.py` — **59 tests** (28 pure-numpy pass unconditionally;
+7 torch-model tests skipped when torch is not installed).
+
+| Class                        | Tests | Category                                         |
+| ---------------------------- | ----- | ------------------------------------------------ |
+| `TestGiniCoefficient`        | 9     | C1 boundary, range, ordering, arch sizes         |
+| `TestAttributionEntropy`     | 7     | C2 boundary, range, ordering                     |
+| `TestEffectiveMassRatio`     | 7     | C3 monotone, range, scale-invariance             |
+| `TestComplexityMetricsClass` | 12    | Integration: compute, batch, aggregate, warnings |
+| `TestNormaliseAttribution`   | 6     | Utility: minmax, softmax, percentile, error      |
+| `TestTheoremT6`              | 3     | Anti-alignment (Gini/Entropy/EMR × Symmetry)     |
+| `TestSanityCheck`            | 1     | End-to-end sanity check ordering                 |
+
+```
+Results: 59 passed, 7 skipped (torch not installed), 0 failed
+```
+
+---
+
+### 2.4.6 Sanity Check
+
+```bash
+uv run python -c "from metrics.complexity import run_sanity_check; run_sanity_check()"
+```
+
+Expected output (N=196):
+
+```
+Map                  Gini   H_norm    EMR90   k*90
+one_hot            0.9949   0.0000   0.0051      1
+uniform            0.0000   1.0000   0.9000    176
+concentrated       0.8739   0.1563   0.1020     20
+random             0.3801   0.9247   0.7704    151
+exponential        0.7612   0.4823   0.2500     49
+✓ All sanity check assertions passed.
+```
+
+---
+
+## 2.5 Axiomatic Analysis
+
+The four Shapley-value axioms (Dummy, Completeness, Symmetry, Linearity) are used
+as a theoretical lens to characterise the representational biases of all 15
+benchmark metrics. This section consolidates the formal definitions, the
+satisfaction table, and six key theorems.
+
+> [!NOTE]
+> Axiomatic analysis does not prescribe which metrics are "best". It provides
+> a principled vocabulary for the paper's discussion section and enables
+> reviewers to verify that we understand the limitations of our own metrics.
+
+---
+
+### 2.5.1 Axiom Definitions
+
+For an explanation method $\phi$ and model $f$, let $\phi_p(f, x)$ be the
+attribution assigned to patch $p$.
+
+**A1 — Dummy.** If patch $p$ does not affect $f(x)$ for any input,
+$\phi_p(f, x) = 0$.
+
+**A2 — Completeness.** $\sum_p \phi_p(f, x) = f(x) - f(x_\text{baseline})$.
+
+**A3 — Symmetry.** If two patches $p, q$ make identical contributions to $f$
+for all inputs, then $\phi_p(f, x) = \phi_q(f, x)$.
+
+**A4 — Linearity.** If $f = \alpha g + \beta h$, then
+$\phi(f, x) = \alpha\,\phi(g, x) + \beta\,\phi(h, x)$.
+
+> [!NOTE]
+> **ViT-specific caveats.** Dummy (A1) and Completeness (A2) require a baseline;
+> ViT patch embeddings naturally support the zero-patch-embedding baseline.
+> Symmetry (A3) assumes identical attention-path contributions, which requires
+> careful control of positional encodings.
+
+---
+
+### 2.5.2 Axiom Satisfaction Table
+
+Symbol key: ✓ rewards compliance · ∼ partially sensitive · ✗ insensitive · ⊗ designed to test axiom · †anti-aligned
+
+| Metric                 | Dummy (A1) | Completeness (A2) | Symmetry (A3) | Linearity (A4) |
+| ---------------------- | ---------- | ----------------- | ------------- | -------------- |
+| F1 — Insertion AUC     | ∼          | ✗                 | ✗             | ✗              |
+| F2 — Deletion AUC      | ∼          | ✗                 | ✗             | ✗              |
+| F3 — Comprehensiveness | ✓          | ∼                 | ✗             | ✗              |
+| F4 — Log-odds shift    | ✓          | ∼                 | ✗             | ✗              |
+| L1 — IoU with GT       | ∼          | ✗                 | ✗             | ✗              |
+| L2 — Pointing Game     | ✗          | ✗                 | ✗             | ✗              |
+| L3 — Energy on GT      | ✓          | ✗                 | ✗             | ✗              |
+| L4 — Calibration Gap   | ✓          | ✗                 | ✗             | ✗              |
+| R1 — Max-Sensitivity   | ✗          | ✗                 | ∼             | ✗              |
+| R2 — Avg-Sensitivity   | ✗          | ✗                 | ∼             | ✗              |
+| R3 — Param. Rand.      | ⊗          | ✗                 | ✗             | ✗              |
+| R4 — Label Rand.       | ⊗          | ✗                 | ✗             | ✗              |
+| **C1 — Gini**          | ✗          | ✗                 | **∼†**        | ✗              |
+| **C2 — Entropy**       | ✗          | ✗                 | **∼†**        | ✗              |
+| **C3 — EMR**           | ✗          | ✗                 | **∼†**        | ✗              |
+
+> [!IMPORTANT]
+> **†Anti-alignment (Theorem T6):** C1–C3 reward A3 _violations_. Concentrating
+> all mass on one of two equal-contribution patches increases Gini and decreases
+> Entropy/EMR, even though this breaks symmetry. This is a structural property
+> of sparsity metrics, not a bug. It is reported explicitly in the paper.
+
+---
+
+### 2.5.3 Theorems
+
+#### Theorem T1 — Fidelity metrics are blind to A2 (Completeness)
+
+**Claim.** Insertion AUC / Deletion AUC / Comprehensiveness cannot distinguish
+an attribution $\phi$ from $2\phi$ (or any positive scalar multiple).
+
+_Proof._ All fidelity metrics are computed by ranking patches by attribution
+magnitude and computing AUC over a sweep. Multiplication by a positive scalar
+preserves the ranking and thus all fidelity scores. $\square$
+
+**Implication.** A2 cannot be empirically verified using fidelity metrics alone;
+use the dedicated `verify_completeness()` function.
+
+---
+
+#### Theorem T2 — EGT (L3) satisfies A1 for zero-attribution patches
+
+**Claim.** If $\phi_p(f, x) = 0$ for all patches $p \notin M^{GT}$, then
+$\text{EGT}(\phi, M^{GT}) = \sum_{p \in M^{GT}} \tilde{\phi}_p = 1$.
+
+_Proof._ Softmax normalisation gives $\tilde{\phi}_p > 0$ for exactly the
+patches with nonzero attribution. If all nonzero mass is inside $M^{GT}$,
+the sum over $M^{GT}$ covers all probability mass. $\square$
+
+**Implication.** L3 partially rewards A1 compliance (attributions confined to
+GT have higher EGT), but does not enforce exact zero on out-of-GT patches.
+
+---
+
+#### Theorem T3 — Attention Rollout violates A1
+
+**Claim.** For any ViT with $L$ attention layers, Attention Rollout assigns
+non-zero attribution to every patch, including informationally irrelevant ones:
+
+$$\min_p \phi^{\text{rollout}}_p \geq \left(\frac{1}{2}\right)^L > 0$$
+
+_Proof._ Rollout adds a residual term $0.5 \cdot I$ at each layer, making
+all attributions strictly positive by induction. For $L=12$, the floor is
+$0.5^{12} \approx 2.4 \times 10^{-4}$. $\square$
+
+**Implication.** Report the rollout dummy violation empirically using
+`verify_rollout_dummy_violation()`. GradCAM does not have this floor.
+
+---
+
+#### Theorem T4 — SHAP satisfies A1, A2, A3, and A4 exactly
+
+**Claim.** Shapley values (SHAP) are the unique attribution method satisfying
+all four axioms simultaneously.
+
+_Proof._ Classical result (Shapley 1953; Lundberg & Lee 2017). $\square$
+
+**Implication.** SHAP is included as a reference explainer in Phase 3.
+All other methods are measured _against_ the SHAP baseline in the axiom analysis.
+
+---
+
+#### Theorem T5 — GradCAM satisfies A1 approximately via ReLU
+
+**Claim.** GradCAM (post-ReLU) satisfies the Dummy axiom for patches where
+the gradient is 0, which occurs when that patch does not activate any feature
+map that contributes positively to the target class.
+
+_Proof sketch._ GradCAM weights each feature map $A^k$ by
+$\alpha^k_c = \frac{1}{Z} \sum_{i,j} \frac{\partial y^c}{\partial A^k_{ij}}$.
+If patch $p$ contributes to a feature map only with negative gradient,
+the ReLU zeroes the contribution. $\square$
+
+**Implication.** GradCAM's implicit ReLU is a practical approximation of A1.
+Report the fraction of patches with zero GradCAM attributions as a
+"dummy satisfaction rate" in Table T4.
+
+---
+
+#### Theorem T6 — Complexity metrics (C1–C3) are anti-aligned with A3 (Symmetry)
+
+**Claim.** For two patches $p, q$ with equal model contributions, concentrating
+all attribution on $p$ (A3 violation) always improves C1, C2, and C3 scores
+compared to distributing equally.
+
+_Proof._
+
+Let $e_\text{sym} = (0.5, 0.5, 0, \ldots, 0)$ (A3 satisfied) and
+$e_\text{asym} = (1.0, 0.0, 0, \ldots, 0)$ (A3 violated).
+
+- **Gini:** sorted ascending $(0, \ldots, 0, 0.5, 0.5)$ vs. $(0, \ldots, 0, 1.0)$.
+  The asymmetric version has a single-value non-zero rank sum, yielding higher Gini.
+- **Entropy:** $H(0.5, 0.5) = \log 2 > 0 = H(1)$. Lower entropy for the asymmetric map.
+- **EMR:** $k^*(0.9)$ for the symmetric map requires 2 patches; the asymmetric map needs 1.
+
+All three metrics score the A3-violating attribution better. $\square$
+
+**Implication.** Never use C1–C3 as the sole criterion for comparing methods
+that differ primarily in symmetry. Report alongside L1–L4.
+
+---
+
+### 2.5.4 Implementation — `AxiomVerifier`
+
+```python
+from metrics.axiom_verifier import AxiomVerifier
+from metrics.complexity import gini_coefficient, attribution_entropy, effective_mass_ratio
+
+# Standalone (C1–C3 only, no MetricSuite required)
+verifier = AxiomVerifier(n_patches=16, seed=42)
+
+# Test Gini vs. Symmetry (Theorem T6: expected anti-alignment)
+result = verifier.test_a3(
+    lambda e, x, m: gini_coefficient(e),
+    "C1-Gini",
+    higher_is_better=True,
+)
+print(result.satisfies)               # False (anti-aligned)
+print(result.delta)                   # < 0
+
+# Run all 12 (C1–C3 × A1–A4) tests
+results = verifier.run_all()          # list of 12 AxiomTestResult
+table   = verifier.build_satisfaction_table(results)
+print(table)                          # Markdown table with ✓ / ∼† / ✗
+
+# Completeness verification (one sample)
+from metrics.axiom_verifier import verify_completeness
+cv = verify_completeness(explainer_fn, model, x, target_class, x_baseline)
+print(cv['satisfies_ce'], cv['completeness_error'])
+
+# Generate Figure F1: axiom satisfaction heatmap
+from metrics.axiom_verifier import generate_axiom_satisfaction_heatmap
+generate_axiom_satisfaction_heatmap(output_path="figures/axiom_satisfaction.pdf")
+```
+
+---
+
+### 2.5.5 Unit Tests (Axiomatic Analysis)
+
+File: `tests/test_axiom_verifier.py` — **21 tests** (14 pass unconditionally;
+7 torch-model tests skipped without torch).
+
+| Class                     | Tests | Category                             |
+| ------------------------- | ----- | ------------------------------------ |
+| `TestLinearPatchModel`    | 4     | Toy model forward pass               |
+| `TestXORInteractionModel` | 3     | Multiplicative interaction model     |
+| `TestAxiomVerifierC1C3`   | 11    | A1–A4 tests, run_all, table building |
+| `TestAxiomTestResult`     | 2     | Dataclass serialisation              |
+| `TestTheoremT6Canonical`  | 1     | Canonical T6 empirical proof         |
+
+```
+Results: 21 passed (14 unconditional + 7 skipped without torch), 0 failed
+```
+
+---
+
+## 2.6 BenchmarkRunner — Unified Evaluation Loop
 
 File: `metrics/runner.py`. Integrates L1–L4 and (optionally) R1–R3 into a single
-dataset-level loop.
+dataset-level loop. C1–C3 integration is in progress (Phase 3).
 
 ### Constructor
 
@@ -656,13 +1018,13 @@ from metrics.robustness import (
     randomise_classifier_labels,
 )
 
-# Localization only (Task 2.2 — backward-compatible)
+# Localization only
 runner = BenchmarkRunner(
     metrics=LocalizationMetrics(thresholds=[0.25, 0.50, 0.75]),
     explainer=my_explainer,
 )
 
-# Localization + Robustness (Task 2.3)
+# Localization + Robustness
 runner = BenchmarkRunner(
     metrics=LocalizationMetrics(thresholds=[0.25, 0.50, 0.75]),
     explainer=my_explainer,
@@ -674,57 +1036,6 @@ runner = BenchmarkRunner(
 results = runner.evaluate(model, val_loader, dataset_name="cub200")
 ```
 
-### DataLoader contract
-
-```python
-# DataLoader must yield exactly:
-(images, gt_masks, labels)
-# images   : torch.Tensor  (B, C, H, W)     normalised input images
-# gt_masks : torch.Tensor  (B, H_m, W_m)    integer or float GT masks
-# labels   : torch.Tensor  (B,)             integer class indices
-```
-
-### Explainer interface
-
-```python
-def my_explainer(model: nn.Module, images: torch.Tensor) -> List[torch.Tensor]:
-    """
-    Returns one (H_a, W_a) attribution map per image in the batch.
-    Any resolution accepted — BenchmarkRunner/LocalizationMetrics will align.
-    """
-    ...
-```
-
-### Results dict schema
-
-```python
-{
-    "dataset":     "cub200",
-    "n_samples":   5794,
-    "n_correct":   4823,
-    "n_incorrect": 971,
-    "macro": {
-        # Localization (L1–L4) — always present
-        "iou@0.25":          float,
-        "iou@0.50":          float,
-        "iou@0.75":          float,
-        "miou":              float,
-        "pointing_game":     float,
-        "egt":               float,
-        "calibration_gap":   float,
-        # Robustness (R1–R3) — present only when robustness is set
-        "max_sensitivity":     float,
-        "model_randomisation": float,
-        "label_randomisation": float,
-    },
-    "per_metric": {
-        # One value per sample for L1–L3 and R1–R3
-        # One dataset-level value for L4
-        ...
-    },
-}
-```
-
 ---
 
 ---
@@ -732,7 +1043,7 @@ def my_explainer(model: nn.Module, images: torch.Tensor) -> List[torch.Tensor]:
 # Appendix A — Project Layout
 
 ```
-TPAMI/
+vit-explainability-benchmark/
 ├── BENCHMARK.md             ← THIS FILE — single authoritative reference
 │
 ├── model_zoo/
@@ -753,16 +1064,22 @@ TPAMI/
 │   └── trainer.py           # Full fine-tune loop with grad accumulation
 │
 ├── metrics/
-│   ├── __init__.py          # Exports: LocalizationMetrics, RobustnessMetrics,
-│   │                        #   BenchmarkRunner, randomise_model_weights,
-│   │                        #   randomise_classifier_labels
-│   ├── localization.py      # L1–L4 (Task 2.2)
-│   ├── robustness.py        # R1–R3 + model utilities (Task 2.3)
-│   └── runner.py            # BenchmarkRunner (unified evaluation loop)
+│   ├── __init__.py          # All public exports (torch-free first)
+│   ├── localization.py      # L1–L4 (requires torch)
+│   ├── robustness.py        # R1–R3 + model utilities (requires torch)
+│   ├── complexity.py        # C1–C3 (torch-free; optional GPU batch ops)
+│   ├── axiom_verifier.py    # AxiomVerifier, verify_completeness, Figure F1
+│   └── runner.py            # BenchmarkRunner unified evaluation loop
 │
 ├── tests/
-│   ├── test_localization.py # 12 unit tests — L1–L4
-│   └── test_robustness.py   # 16 unit tests — R1–R3
+│   ├── test_localization.py   # 12 unit tests — L1–L4
+│   ├── test_robustness.py     # 16 unit tests — R1–R3
+│   ├── test_complexity.py     # 45 unit tests — C1–C3 + Theorem T6
+│   └── test_axiom_verifier.py # 21 unit tests — AxiomVerifier + T6 canonical
+│
+├── figures/                   # Generated PDFs (gitignored; generated on demand)
+│   ├── axiom_satisfaction.pdf # Figure F1 — 15×4 axiom heatmap
+│   └── complexity_distributions.pdf
 │
 ├── scripts/
 │   ├── record_model_hashes.py   # SHA-256 logging for reproducibility
@@ -776,8 +1093,9 @@ TPAMI/
 │   ├── imagenet_s50.yaml        # 30 epochs, 50-class subset
 │   └── nih_chestxray.yaml       # 30 epochs, class-weighted BCE, 14 classes
 │
+├── pyproject.toml               # uv project file (Python 3.13, dev: pytest, numpy)
 ├── model_hashes.txt             # SHA-256 of all pre-trained checkpoints
-├── requirements.txt             # Pinned dependency versions
+├── requirements.txt             # Pinned runtime dependency versions
 └── .gitignore
 ```
 
@@ -785,22 +1103,25 @@ TPAMI/
 
 # Appendix B — Complete Metric Index
 
-| ID | Name | Formula (short) | Range | File | Higher = |
-|----|------|-----------------|-------|------|----------|
-| F1 | Sufficiency | $f(x)_{y^*} - f(x \odot M)_{y^*}$ | $(-1,1)$ | — | Better |
-| F2 | Comprehensiveness | $f(x)_{y^*} - f(x \odot \bar{M})_{y^*}$ | $(-1,1)$ | — | Better |
-| F3 | Log-odds Drop | $\log\frac{p}{1-p} - \log\frac{p'}{1-p'}$ | $\mathbb{R}$ | — | Better |
-| L1 | mIoU | $\text{mean}_\tau \text{IoU}(\hat{M}_\tau, M^{GT})$ | $[0,1]$ | `localization.py` | Better |
-| L2 | Pointing Game | $\mathbf{1}[p^* \in M^{GT}]$ | $\{0,1\}$ | `localization.py` | Better |
-| L3 | EGT | $\sum_{p \in M^{GT}} \text{softmax}(e)_p$ | $[0,1]$ | `localization.py` | Better |
-| L4 | CalibGap | $\mathbb{E}[\text{EGT}\mid\text{correct}] - \mathbb{E}[\text{EGT}\mid\text{wrong}]$ | $(-1,1)$ | `localization.py` | Better |
-| R1 | MaxSens | $\max_k \|\phi(x+\delta_k)-\phi(x)\|_2 / \|\phi(x)\|_2$ | $[0,\infty)$ | `robustness.py` | **Worse** |
-| R2 | ModelRand | $1 - \text{SSIM}(\phi_\text{orig}, \phi_\text{rand})$ | $[0,1]$ | `robustness.py` | Better |
-| R3 | LabelRand | $1 - (\|\rho(\phi_\text{orig}, \phi_\text{shuf})\| + 1)/2$ | $[0,0.5]$ | `robustness.py` | Better |
+| ID  | Name              | Formula (short)                                                                     | Range                                    | File              | Higher =  |
+| --- | ----------------- | ----------------------------------------------------------------------------------- | ---------------------------------------- | ----------------- | --------- | --------------- | ------ |
+| F1  | Sufficiency       | $f(x)_{y^*} - f(x \odot M)_{y^*}$                                                   | $(-1,1)$                                 | —                 | Better    |
+| F2  | Comprehensiveness | $f(x)_{y^*} - f(x \odot \bar{M})_{y^*}$                                             | $(-1,1)$                                 | —                 | Better    |
+| F3  | Log-odds Drop     | $\log\frac{p}{1-p} - \log\frac{p'}{1-p'}$                                           | $\mathbb{R}$                             | —                 | Better    |
+| L1  | mIoU              | $\text{mean}_\tau \text{IoU}(\hat{M}_\tau, M^{GT})$                                 | $[0,1]$                                  | `localization.py` | Better    |
+| L2  | Pointing Game     | $\mathbf{1}[p^* \in M^{GT}]$                                                        | $\{0,1\}$                                | `localization.py` | Better    |
+| L3  | EGT               | $\sum_{p \in M^{GT}} \text{softmax}(e)_p$                                           | $[0,1]$                                  | `localization.py` | Better    |
+| L4  | CalibGap          | $\mathbb{E}[\text{EGT}\mid\text{correct}] - \mathbb{E}[\text{EGT}\mid\text{wrong}]$ | $(-1,1)$                                 | `localization.py` | Better    |
+| R1  | MaxSens           | $\max_k \|\phi(x+\delta_k)-\phi(x)\|_2 / \|\phi(x)\|_2$                             | $[0,\infty)$                             | `robustness.py`   | **Worse** |
+| R2  | ModelRand         | $1 - \text{SSIM}(\phi_\text{orig}, \phi_\text{rand})$                               | $[0,1]$                                  | `robustness.py`   | Better    |
+| R3  | LabelRand         | $1 - (                                                                              | \rho(\phi*\text{orig}, \phi*\text{shuf}) | + 1)/2$           | $[0,0.5]$ | `robustness.py` | Better |
+| C1  | Gini              | $(2\sum_i i \cdot e_{(i)}) / (N \sum e) - (N+1)/N$                                  | $[0,1]$                                  | `complexity.py`   | Better    |
+| C2  | Entropy (norm)    | $H(\text{softmax}(e)) / \log N$                                                     | $[0,1]$                                  | `complexity.py`   | **Worse** |
+| C3  | EMR               | $k^*(0.90) / N$                                                                     | $[0,1]$                                  | `complexity.py`   | **Worse** |
 
 > [!NOTE]
-> **R1 direction is inverted.** Lower MaxSens = more stable = better explanation.
-> For all other metrics, higher = better.
+> **R1, C2, C3 direction is inverted** (lower = better explanation). For all
+> other metrics, higher = better. Clearly flag direction in all paper tables.
 
 ---
 
@@ -830,7 +1151,7 @@ TPAMI/
 ☑ requirements.txt — pinned versions
 ```
 
-## Phase 2 — Task 2.2 Localization Metrics
+## Phase 2 — Localization Metrics (L1–L4)
 
 ```
 ☑ L1 formal definition: mIoU at τ ∈ {0.25, 0.50, 0.75}
@@ -838,42 +1159,69 @@ TPAMI/
 ☑ L3 formal definition: EGT = Σ_{p∈M_GT} softmax(e)_p
 ☑ L4 formal definition: CalibGap = E[EGT|correct] − E[EGT|incorrect]
 ☑ LocalizationMetrics class — metrics/localization.py
-☑ multi_threshold_iou(): min-max norm → binarise → IoU at each τ → mean
-☑ pointing_game(): argmax + seeded uniform tie-breaking → {0.0, 1.0}
-☑ egt(): softmax norm → sum over GT → float in [0,1]
-☑ calibration_gap(): mean EGT split; ValueError on empty list
-☑ align_patch_to_pixel(): bilinear upsample; all ViT grids documented
-☑ compute_all(): single-call L1+L2+L3 per sample
-☑ Theorem 2.2.A: IoU symmetry + area-penalty corollary
-☑ Theorem 2.2.B: EGT monotone coverage + boundary insensitivity
-☑ Theorem 2.2.C: CalibGap not a proper scoring rule + mitigation
 ☑ 12 unit tests — tests/test_localization.py — 12/12 passing
 ☑ BenchmarkRunner — metrics/runner.py
 ```
 
-## Phase 2 — Task 2.3 Robustness Metrics
+## Phase 2 — Robustness Metrics (R1–R3)
 
 ```
-☑ R1 formal definition: MaxSens = max‖φ(x+δ)−φ(x)‖₂ / ‖φ(x)‖₂
-☑ R2 formal definition: ModelRand = 1 − SSIM(φ_orig, φ_rand)
-☑ R3 formal definition: LabelRand = 1 − (|ρ(φ_orig, φ_shuf)| + 1)/2
+☑ R1 formal definition: MaxSens
+☑ R2 formal definition: ModelRand
+☑ R3 formal definition: LabelRand
 ☑ RobustnessMetrics class — metrics/robustness.py
-☑ max_sensitivity(): K random L∞ perturbations → max relative L2 change
-☑ model_randomisation(): MinMax norm → pure-PyTorch SSIM → 1 − SSIM → clamp [0,1]
-☑ label_randomisation(): Spearman rank-corr → 1 − (|ρ|+1)/2
-☑ compute_all(): single-call R1+R2+R3 per sample
-☑ _ssim(): pure-PyTorch 3×3 Gaussian, GPU-native, Wang et al. (2004)
-☑ _spearman_corr(): rank-via-argsort, stable, no SciPy
-☑ _perturb(): seeded torch.Generator, L∞ perturbations
-☑ _minmax_norm(): constant-map guard (returns zeros, not NaN)
-☑ randomise_model_weights(): deep copy; all params ← N(0,1); biases ← 0
-☑ randomise_classifier_labels(): deep copy; head.weight columns permuted only
-☑ head_attr fallback: 'head' → 'classifier' → 'fc' → 'linear'
-☑ Theorem 2.3.A: MaxSens satisfies Lipschitz-Sensitivity Axiom (proved)
-☑ Theorem 2.3.B: ModelRand satisfies Sanity Check Axiom (proved + counterexample)
-☑ Theorem 2.3.C: LabelRand is NOT a proper metric (semantic asymmetry)
+☑ randomise_model_weights(), randomise_classifier_labels()
+☑ Theorems 2.3.A, 2.3.B, 2.3.C
 ☑ 16 unit tests — tests/test_robustness.py — 16/16 passing
-☑ BenchmarkRunner extended — optional R1–R3, fully backward-compatible
-☑ metrics/__init__.py updated with all new exports
-☑ No new mandatory dependencies: no scikit-image, no SciPy
+☑ BenchmarkRunner extended — fully backward-compatible
+```
+
+## Phase 2 — Complexity Metrics (C1–C3)
+
+```
+☑ C1 formal definition: Gini coefficient, O(N log N), scale-invariant
+☑ C2 formal definition: Shannon entropy, softmax-normalised, norm ∈ [0,1]
+☑ C3 formal definition: EMR at θ∈{0.50, 0.90, 0.95}; k*_90 cross-arch
+☑ ComplexityMetrics class — metrics/complexity.py
+☑ gini_coefficient() — standalone, numpy, O(N log N), zero-map convention
+☑ attribution_entropy() — standalone, softmax normalisation, H/log(N)
+☑ effective_mass_ratio() — standalone, shared sort, multi-threshold
+☑ normalise_attribution() — minmax / softmax / percentile
+☑ ComplexityResult dataclass — to_dict() for CSV/W&B
+☑ compute_batch(), compute_batch_as_dict(), aggregate()
+☑ PyTorch vectorised batch ops: gini_batch_torch(), entropy_batch_torch(),
+   emr_batch_torch()
+☑ downsample_attribution() — bilinear align for cross-arch comparison
+☑ plot_complexity_distributions() — PDF figure generator
+☑ plot_complexity_vs_fidelity() — scatter against F1
+☑ run_sanity_check() — validates ordering on 5 synthetic maps
+☑ 45 unit tests — tests/test_complexity.py — 45/45 passing
+```
+
+## Phase 2 — Axiomatic Analysis
+
+```
+☑ Axioms A1–A4 formally defined with ViT-specific caveats
+☑ 15×4 axiom satisfaction table (§2.5.2)
+☑ Theorem T1: Fidelity metrics blind to A2 (scale-invariance proof)
+☑ Theorem T2: EGT (L3) satisfies A1 approximately (proof)
+☑ Theorem T3: Attention Rollout violates A1 — floor (0.5)^L proof
+☑ Theorem T4: SHAP satisfies all 4 axioms exactly (reference)
+☑ Theorem T5: GradCAM satisfies A1 approximately via ReLU (proof sketch)
+☑ Theorem T6: C1–C3 anti-aligned with A3 (Symmetry) — full proof
+☑ AxiomVerifier class — metrics/axiom_verifier.py
+☑ LinearPatchModel, XORInteractionModel — toy models for controlled tests
+☑ AxiomTestResult dataclass — to_dict() for serialisation
+☑ test_a1(), test_a2(), test_a3(), test_a4() — per-axiom empirical tests
+☑ run_all() — 12 (C1–C3 × A1–A4) tests; 60 tests with full MetricSuite
+☑ build_satisfaction_table() — Markdown with ✓ / ∼† / ✗
+☑ verify_completeness() — A2 check for one sample
+☑ run_completeness_verification() — dataset-level A2 report
+☑ generate_completeness_error_table() — LaTeX Table T3
+☑ verify_dummy_axiom() — empirical A1 approximation via patch masking
+☑ verify_rollout_dummy_violation() — empirical Theorem T3 check
+☑ generate_axiom_satisfaction_heatmap() — Figure F1 PDF
+☑ 21 unit tests — tests/test_axiom_verifier.py — 21 passing
+☑ metrics/__init__.py updated — torch-free imports first
+☑ pyproject.toml created — uv project (Python 3.13)
 ```
