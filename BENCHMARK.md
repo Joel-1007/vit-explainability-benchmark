@@ -23,10 +23,11 @@
 | [2.3](#23--robustness-metrics-r1r3)               | Robustness Metrics (R1–R3)        | ✅          |
 | [2.4](#24--complexity-metrics-c1c3)               | Complexity Metrics (C1–C3)        | ✅          |
 | [2.5](#25--axiomatic-analysis)                    | Axiomatic Analysis                | ✅          |
-| [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | 🔄 In Progress |
+| [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | ✅ Complete |
 | [3.1](#31--standardised-explainer-interface)      | Standardised Explainer Interface  | ✅          |
 | [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ✅          |
 | [3.3](#33--benchmarkrunner-phase3runner)          | BenchmarkRunner / Phase3Runner    | ✅          |
+| [3.4](#34--sanity-checks-s1s3)                    | Sanity Checks (S1–S3)             | ✅          |
 | [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
 | [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
 | [Appendix C](#appendix-c--master-checklist)       | Master Checklist                  | —           |
@@ -1335,6 +1336,53 @@ File: `tests/test_runner.py` — **36 tests**, all passing.
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
   test_runner.py : 36 passed, 0 failed
   Full suite     : 185 passed, 2 skipped (CUDA), 0 failed
+```
+
+```
+
+---
+
+## 3.4 Sanity Checks (S1–S3)
+
+Mandatory model/explainer verification (Guide §3.4) implemented in `metrics/sanity.py`, to run before generating the final results matrix.
+
+| Check | Name | Description | Export |
+|---|---|---|---|
+| **S1** | Random Baseline | Verifies that a generated uniform random map yields chance-level Gini, max Entropy, and uniform EMR90. | `run_s1_random_baseline` |
+| **S2** | Model Parameter Randomisation | R3 validation (Adebayo et al. 2018): cascading randomisation from top to bottom transformer blocks monotonically reduces Spearman $\rho$ with the base map. | `run_s2_model_randomisation` |
+| **S3** | Label Permutation | Compares attribution of the true class vs a permuted (wrong) class to verify dependence behavior (high vs low sensitivity). | `run_s3_label_permutation` |
+
+### 3.4.1 Public API
+
+```python
+from metrics.sanity import run_all_sanity_checks
+
+results = run_all_sanity_checks(
+    explainer_cls=GradCAMExplainer,
+    model=model_vit,
+    patch_size=16,
+    img_size=224,
+    n_images=10,
+    seed=42
+)
+# Returns Dict[str, SanityResult]: {'S1': S1Result, 'S2': S2Result, 'S3': S3Result}
+```
+
+### 3.4.2 Unit Tests (Task 3.4)
+
+File: `tests/test_sanity.py` — **16 tests**, all passing.
+
+| Class                     | Tests | Category                                               |
+| ------------------------- | ----- | ------------------------------------------------------ |
+| `TestS1RandomBaseline`    | 5     | S1 Result schema, entropy/gini empirical thresholds    |
+| `TestS2ModelRandomisation`| 5     | Monotonic decrease check, slack factor for tiny models |
+| `TestS3LabelPermutation`  | 4     | Independence vs gradient-dependence, Spearman scores   |
+| `TestSanityIntegration`   | 2     | Dictionary extraction and JSON-serialisation safety    |
+
+```
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_sanity.py : 16 passed, 0 failed
+  Full suite     : 201 passed, 2 skipped (CUDA), 0 failed
 ```
 
 ---

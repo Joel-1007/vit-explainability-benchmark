@@ -9,6 +9,13 @@ Normalisation  (Guide Listing 3 — sits between explainers and metrics)
     NormMode                     Enum of valid mode strings
     AttributionNormError         Raised on invalid mode / shape
 
+Sanity Checks  (Guide §3.4 — mandatory validation before experiments)
+    run_s1_random_baseline       S1: complexity metrics on random attribution maps
+    run_s2_model_randomisation   S2: Spearman ρ curve via cascading layer randomisation
+    run_s3_label_permutation     S3: true-label vs wrong-label attribution divergence
+    run_all_sanity_checks        Convenience: S1 + S2 + S3 in one call
+    SanityResult / S1Result / S2Result / S3Result  typed result dataclasses
+
 Fidelity
     FidelityMetrics              F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds
 
@@ -43,6 +50,16 @@ require ``torch`` and are silently skipped if it is not installed.
 # ---------------------------------------------------------------------------
 # Torch-independent submodules (always importable)
 # ---------------------------------------------------------------------------
+from .sanity import (
+    run_s1_random_baseline,
+    run_s2_model_randomisation,
+    run_s3_label_permutation,
+    run_all_sanity_checks,
+    SanityResult,
+    S1Result,
+    S2Result,
+    S3Result,
+)
 from .normalize import (
     normalize_attribution,
     normalize_batch,
@@ -79,6 +96,15 @@ except ModuleNotFoundError:
     _TORCH_SUBMODULES_AVAILABLE = False
 
 __all__ = [
+    # Sanity checks — Guide §3.4 (torch-free)
+    "run_s1_random_baseline",
+    "run_s2_model_randomisation",
+    "run_s3_label_permutation",
+    "run_all_sanity_checks",
+    "SanityResult",
+    "S1Result",
+    "S2Result",
+    "S3Result",
     # Normalisation pipeline — Guide Listing 3 (torch-free)
     "normalize_attribution",
     "normalize_batch",
