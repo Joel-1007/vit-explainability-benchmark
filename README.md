@@ -114,3 +114,14 @@ vit-explainability-benchmark/
 - SHA-256 hashes of all pre-trained models are locked in `model_hashes.txt`.
 - Data splits are deterministic.
 - All pseudo-random sampling in metrics (e.g., L2 tie-breaking, R1 noise generation) accepts explicit integer seeds.
+
+## 📊 Phase 4: Analysis & Findings (Experimental)
+*(Note: These are placeholders for Phase 4 empirical results.)*
+
+- **Inter-Metric Correlation:** [PLACEHOLDER: Summary of metric orthogonality and heatmap results]
+- **Task-Metric Concordance:** [PLACEHOLDER: Discordance insights and Kendall tau findings]
+- **Ablation Studies:** 
+  - Token Resolution: `[PLACEHOLDER: Cohen's d effect size]`
+  - Layer Depth: `[PLACEHOLDER: Cohen's d effect size]`
+  - Masking Strategy: `[PLACEHOLDER: Cohen's d effect size]`
+  - Pre-training Objective: `[PLACEHOLDER: Cohen's d effect size]`

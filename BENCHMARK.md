@@ -10,27 +10,31 @@
 
 ## Table of Contents
 
-| §                                                 | Title                             | Status      |
-| ------------------------------------------------- | --------------------------------- | ----------- |
-| [Phase 1](#phase-1--model-zoo--training-protocol) | Model Zoo & Training Protocol     | ✅ Complete |
-| [1.1](#11--model-zoo-selection)                   | Model Zoo Selection               | ✅          |
-| [1.2](#12--standardised-fine-tuning-protocol)     | Standardised Fine-Tuning Protocol | ✅          |
-| [1.3](#13--dataset-registry)                      | Dataset Registry                  | ✅          |
-| [1.4](#14--reproducibility-infrastructure)        | Reproducibility Infrastructure    | ✅          |
-| [Phase 2](#phase-2--metrics-suite)                | Metrics Suite                     | ✅ Complete |
-| [2.1](#21--fidelity-metrics-f1f3)                 | Fidelity Metrics (F1–F3)          | ✅          |
-| [2.2](#22--localization-metrics-l1l4)             | Localization Metrics (L1–L4)      | ✅          |
-| [2.3](#23--robustness-metrics-r1r3)               | Robustness Metrics (R1–R3)        | ✅          |
-| [2.4](#24--complexity-metrics-c1c3)               | Complexity Metrics (C1–C3)        | ✅          |
-| [2.5](#25--axiomatic-analysis)                    | Axiomatic Analysis                | ✅          |
-| [Phase 3](#phase-3--baseline-evaluation-pipeline) | Baseline Evaluation Pipeline      | ✅ Complete |
-| [3.1](#31--standardised-explainer-interface)      | Standardised Explainer Interface  | ✅          |
-| [3.2](#32--attribution-normalisation)             | Attribution Normalisation         | ✅          |
-| [3.3](#33--benchmarkrunner-phase3runner)          | BenchmarkRunner / Phase3Runner    | ✅          |
-| [3.4](#34--sanity-checks-s1s3)                    | Sanity Checks (S1–S3)             | ✅          |
-| [Appendix A](#appendix-a--project-layout)         | Project Layout                    | —           |
-| [Appendix B](#appendix-b--complete-metric-index)  | Complete Metric Index             | —           |
-| [Appendix C](#appendix-c--master-checklist)       | Master Checklist                  | —           |
+| §                                                              | Title                             | Status         |
+| -------------------------------------------------------------- | --------------------------------- | -------------- |
+| [Phase 1](#phase-1--model-zoo--training-protocol)              | Model Zoo & Training Protocol     | ✅ Complete    |
+| [1.1](#11--model-zoo-selection)                                | Model Zoo Selection               | ✅             |
+| [1.2](#12--standardised-fine-tuning-protocol)                  | Standardised Fine-Tuning Protocol | ✅             |
+| [1.3](#13--dataset-registry)                                   | Dataset Registry                  | ✅             |
+| [1.4](#14--reproducibility-infrastructure)                     | Reproducibility Infrastructure    | ✅             |
+| [Phase 2](#phase-2--metrics-suite)                             | Metrics Suite                     | ✅ Complete    |
+| [2.1](#21--fidelity-metrics-f1f3)                              | Fidelity Metrics (F1–F3)          | ✅             |
+| [2.2](#22--localization-metrics-l1l4)                          | Localization Metrics (L1–L4)      | ✅             |
+| [2.3](#23--robustness-metrics-r1r3)                            | Robustness Metrics (R1–R3)        | ✅             |
+| [2.4](#24--complexity-metrics-c1c3)                            | Complexity Metrics (C1–C3)        | ✅             |
+| [2.5](#25--axiomatic-analysis)                                 | Axiomatic Analysis                | ✅             |
+| [Phase 3](#phase-3--baseline-evaluation-pipeline)              | Baseline Evaluation Pipeline      | ✅ Complete    |
+| [3.1](#31--standardised-explainer-interface)                   | Standardised Explainer Interface  | ✅             |
+| [3.2](#32--attribution-normalisation)                          | Attribution Normalisation         | ✅             |
+| [3.3](#33--benchmarkrunner-phase3runner)                       | BenchmarkRunner / Phase3Runner    | ✅             |
+| [3.4](#34--sanity-checks-s1s3)                                 | Sanity Checks (S1–S3)             | ✅             |
+| [Phase 4](#phase-4--analysis-ablations--theoretical-grounding) | Analysis & Ablations              | 🔄 In Progress |
+| [4.1](#41-inter-metric-correlation)                            | Inter-Metric Correlation          | 🔄             |
+| [4.2](#42-task-metric-interaction)                             | Task-Metric Interaction           | 🔄             |
+| [4.3](#43-ablation-studies)                                    | Ablation Studies                  | 🔄             |
+| [Appendix A](#appendix-a--project-layout)                      | Project Layout                    | —              |
+| [Appendix B](#appendix-b--complete-metric-index)               | Complete Metric Index             | —              |
+| [Appendix C](#appendix-c--master-checklist)                    | Master Checklist                  | —              |
 
 ---
 
@@ -232,13 +236,13 @@ f3 = fm.log_odds_drop(model, images, targets, att_maps, k_frac=0.2)
 
 File: `tests/test_fidelity.py` — **5 tests**, all passing.
 
-| ID  | Test | Assertion |
-| --- | --- | --- |
-| F01 | `test_generate_mask` | Masks top `k_frac` elements correctly. |
-| F02 | `test_apply_mask_zero` | Selected regions retain content, others zeroed. |
-| F03 | `test_apply_mask_mean` | Drops selected regions, interpolates with baseline mean. |
-| F04 | `test_metrics_standalone` | Individual metrics execution shapes are correct. |
-| F05 | `test_compute_all` | Computes F1, F2, F3 recursively over configured fractions. |
+| ID  | Test                      | Assertion                                                  |
+| --- | ------------------------- | ---------------------------------------------------------- |
+| F01 | `test_generate_mask`      | Masks top `k_frac` elements correctly.                     |
+| F02 | `test_apply_mask_zero`    | Selected regions retain content, others zeroed.            |
+| F03 | `test_apply_mask_mean`    | Drops selected regions, interpolates with baseline mean.   |
+| F04 | `test_metrics_standalone` | Individual metrics execution shapes are correct.           |
+| F05 | `test_compute_all`        | Computes F1, F2, F3 recursively over configured fractions. |
 
 ```
 Results: 5/5 passed, 0 failed
@@ -797,15 +801,15 @@ n = normalise_attribution(att_map, 'minmax')  # [0, 1]
 
 **File: `tests/test_torch_complexity.py`** — **7 PyTorch-specific tests** (skipped when torch absent).
 
-| ID     | Class                          | Tests | What is tested                                           |
-| ------ | ------------------------------ | ----- | -------------------------------------------------------- |
-| PT_C1  | `TestGiniBatchTorchShape`      | 3     | `gini_batch_torch` output shape (B,), flat, dtype        |
-| PT_C2  | `TestGiniBatchTorchValues`     | 3     | Values match numpy reference; one-hot; uniform           |
-| PT_C3  | `TestEntropyBatchTorchRange`   | 2     | `entropy_batch_torch` range [0,1]; spiky map → near 0   |
-| PT_C4  | `TestEntropyBatchTorchUniform` | 2     | Uniform map → H_norm = 1.0; batch of uniforms            |
-| PT_C5  | `TestEmrBatchTorchOneHot`      | 3     | One-hot → EMR=1/N; uniform → EMR≈0.9; batch shape       |
-| PT_C6  | `TestComputeBatchTorchTensor`  | 3     | `compute_batch` accepts `(B,H_p,W_p)` torch.Tensor      |
-| PT_C7  | `TestDownsampleAttribution`    | 4     | `downsample_attribution` shape, non-negativity, 2D guard |
+| ID    | Class                          | Tests | What is tested                                           |
+| ----- | ------------------------------ | ----- | -------------------------------------------------------- |
+| PT_C1 | `TestGiniBatchTorchShape`      | 3     | `gini_batch_torch` output shape (B,), flat, dtype        |
+| PT_C2 | `TestGiniBatchTorchValues`     | 3     | Values match numpy reference; one-hot; uniform           |
+| PT_C3 | `TestEntropyBatchTorchRange`   | 2     | `entropy_batch_torch` range [0,1]; spiky map → near 0    |
+| PT_C4 | `TestEntropyBatchTorchUniform` | 2     | Uniform map → H_norm = 1.0; batch of uniforms            |
+| PT_C5 | `TestEmrBatchTorchOneHot`      | 3     | One-hot → EMR=1/N; uniform → EMR≈0.9; batch shape        |
+| PT_C6 | `TestComputeBatchTorchTensor`  | 3     | `compute_batch` accepts `(B,H_p,W_p)` torch.Tensor       |
+| PT_C7 | `TestDownsampleAttribution`    | 4     | `downsample_attribution` shape, non-negativity, 2D guard |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1051,15 +1055,15 @@ generate_axiom_satisfaction_heatmap(output_path="figures/axiom_satisfaction.pdf"
 
 **File: `tests/test_torch_axioms.py`** — **7 PyTorch-specific tests** (skipped when torch absent).
 
-| ID     | Class                                    | Tests | What is tested                                                  |
-| ------ | ---------------------------------------- | ----- | --------------------------------------------------------------- |
-| PT_A1  | `TestVerifyCompletenessLinear`           | 2     | `verify_completeness` returns 4 keys; finite error              |
-| PT_A2  | `TestVerifyCompletenessXOR`              | 1     | XOR model illustrates Theorem T1 counterexample                 |
-| PT_A3  | `TestVerifyDummyAxiomPasses`             | 1     | `verify_dummy_axiom` returns 7 keys; values in [0,1]            |
-| PT_A4  | `TestVerifyDummyAxiomFails`              | 1     | Wrong attribution → non-zero dummy_attribution_ratio            |
-| PT_A5  | `TestAxiomVerifierA3GiniAntialignment`   | 1     | Theorem T6: Gini A3 delta < 0 via verifier (torch backend)      |
-| PT_A6  | `TestVerifyRolloutDummyViolation`        | 1     | `verify_rollout_dummy_violation` interface contract + keys       |
-| PT_A7  | `TestGiniBatchTorchCPUGPUConsistency`   | 2     | `gini_batch_torch` deterministic on CPU; GPU agree (skip CUDA)  |
+| ID    | Class                                  | Tests | What is tested                                                 |
+| ----- | -------------------------------------- | ----- | -------------------------------------------------------------- |
+| PT_A1 | `TestVerifyCompletenessLinear`         | 2     | `verify_completeness` returns 4 keys; finite error             |
+| PT_A2 | `TestVerifyCompletenessXOR`            | 1     | XOR model illustrates Theorem T1 counterexample                |
+| PT_A3 | `TestVerifyDummyAxiomPasses`           | 1     | `verify_dummy_axiom` returns 7 keys; values in [0,1]           |
+| PT_A4 | `TestVerifyDummyAxiomFails`            | 1     | Wrong attribution → non-zero dummy_attribution_ratio           |
+| PT_A5 | `TestAxiomVerifierA3GiniAntialignment` | 1     | Theorem T6: Gini A3 delta < 0 via verifier (torch backend)     |
+| PT_A6 | `TestVerifyRolloutDummyViolation`      | 1     | `verify_rollout_dummy_violation` interface contract + keys     |
+| PT_A7 | `TestGiniBatchTorchCPUGPUConsistency`  | 2     | `gini_batch_torch` deterministic on CPU; GPU agree (skip CUDA) |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1112,6 +1116,7 @@ results = runner.evaluate(model, val_loader, dataset_name="cub200")
 
 Phase 3 wraps the 13 metrics (F1–F4, L1–L4, R1–R4, C1–C3) and 7 explainers (E1–E7)
 into a **single reproducible evaluation command** with:
+
 - Fixed random seeds (per-run seed logged in metadata)
 - Checkpoint-and-resume for long GPU runs
 - Unified CSV output that feeds directly into Phase 4 result tables
@@ -1140,6 +1145,7 @@ class MyExplainer(BaseExplainer):
 ```
 
 Key invariants:
+
 - Output shape is always `(H_img // patch_size, W_img // patch_size)`.
 - Values are **un-normalised** (raw attribution scores; normalisation is Task 3.2).
 - `explain_batch(xs, target_classes)` defaults to a loop; override for amortised methods.
@@ -1147,15 +1153,15 @@ Key invariants:
 
 ### 3.1.2 Explainer Index
 
-| #   | Class                        | Method                     | File                  | Swin-B | Note                           |
-| --- | ---------------------------- | -------------------------- | --------------------- | ------ | ------------------------------ |
-| E1  | `RawAttentionExplainer`      | Raw CLS attention          | `raw_attention.py`    | ✗      | Last block, mean over heads    |
-| E2  | `AttentionRolloutExplainer`  | Attention Rollout          | `rollout.py`          | ✗      | Recursive Â product            |
-| E3  | `GradCAMExplainer`           | GradCAM                    | `gradcam.py`          | ✓      | Hook-based, ReLU gated         |
-| E4  | `CheferLRPExplainer`         | Chefer et al. LRP          | `chefer_lrp.py`       | ✗      | Pure-PyTorch reimplementation  |
-| E5  | `RISEExplainer`              | RISE (Petsiuk et al. 2018) | `rise.py`             | ✓      | 4000 float16 masks; chunked    |
-| E6  | `LIMEExplainer`              | LIME (patch-grid)          | `lime.py`             | ✓      | Ridge regression on P² patches |
-| E7  | `DIMEExplainer`              | DIME                       | `dime.py`             | —      | ⚠ Placeholder (see below)     |
+| #   | Class                       | Method                     | File               | Swin-B | Note                           |
+| --- | --------------------------- | -------------------------- | ------------------ | ------ | ------------------------------ |
+| E1  | `RawAttentionExplainer`     | Raw CLS attention          | `raw_attention.py` | ✗      | Last block, mean over heads    |
+| E2  | `AttentionRolloutExplainer` | Attention Rollout          | `rollout.py`       | ✗      | Recursive Â product            |
+| E3  | `GradCAMExplainer`          | GradCAM                    | `gradcam.py`       | ✓      | Hook-based, ReLU gated         |
+| E4  | `CheferLRPExplainer`        | Chefer et al. LRP          | `chefer_lrp.py`    | ✗      | Pure-PyTorch reimplementation  |
+| E5  | `RISEExplainer`             | RISE (Petsiuk et al. 2018) | `rise.py`          | ✓      | 4000 float16 masks; chunked    |
+| E6  | `LIMEExplainer`             | LIME (patch-grid)          | `lime.py`          | ✓      | Ridge regression on P² patches |
+| E7  | `DIMEExplainer`             | DIME                       | `dime.py`          | —      | ⚠ Placeholder (see below)      |
 
 > [!NOTE]
 > **E7 — DIME Guide Inconsistency.** The implementation guide lists DIME as
@@ -1174,7 +1180,7 @@ more auditable and dependency-free for TPAMI reproducibility review.
 **E5 — RISE vectorisation:** Pre-generates all M=4000 masks as float16
 `(M, 1, H, W)` at `__init__` time. Inference loops over chunks of 100, giving
 ~40 forward passes instead of 4000 serial passes. Consistent with the guide's
-*"vectorise over mask dimension"* requirement.
+_"vectorise over mask dimension"_ requirement.
 
 **Gradient handling:** Outer `torch.no_grad()` context + inner
 `torch.enable_grad()` for gradient methods (GradCAM, CheferLRP). Hook cleanup
@@ -1185,16 +1191,16 @@ is guaranteed via `try … finally: hook.remove()`.
 File: `tests/test_explainers.py` — **26 tests passing, 1 documented skip**
 (E14: DIME no-NaN test, pending guide resolution).
 
-| Category  | Tests | What is tested                                              |
-| --------- | ----- | ----------------------------------------------------------- |
-| A – Shape | 7     | Every explainer returns exactly `(P, P)` shape              |
-| B – Finite| 7     | `torch.isfinite(output).all()` for all explainers           |
-| C – Batch | 3     | `explain_batch` ≡ loop over `explain` (E1, E2, E3)          |
-| D – Var   | 3     | Output `std > 0` on non-trivial input (E1, E5, E6)          |
-| E – Swin  | 2     | E1/E2 raise `UnsupportedArchitectureError` on `_MockSwinB`  |
-| F – RISE  | 2     | Non-negative output; mask count stored correctly            |
-| G – LIME  | 2     | Finite output; exactly P² = 16 coefficients                 |
-| H – DIME  | 1     | `is_resolved=False`; `NotImplementedError` ∋ "BENCHMARK.md" |
+| Category   | Tests | What is tested                                              |
+| ---------- | ----- | ----------------------------------------------------------- |
+| A – Shape  | 7     | Every explainer returns exactly `(P, P)` shape              |
+| B – Finite | 7     | `torch.isfinite(output).all()` for all explainers           |
+| C – Batch  | 3     | `explain_batch` ≡ loop over `explain` (E1, E2, E3)          |
+| D – Var    | 3     | Output `std > 0` on non-trivial input (E1, E5, E6)          |
+| E – Swin   | 2     | E1/E2 raise `UnsupportedArchitectureError` on `_MockSwinB`  |
+| F – RISE   | 2     | Non-negative output; mask count stored correctly            |
+| G – LIME   | 2     | Finite output; exactly P² = 16 coefficients                 |
+| H – DIME   | 1     | `is_resolved=False`; `NotImplementedError` ∋ "BENCHMARK.md" |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1203,12 +1209,12 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
 
 ### 3.1.5 Production Notes
 
-| Concern              | Recommendation                                                  |
-| -------------------- | --------------------------------------------------------------- |
-| RISE cost (M=4000)   | Sub-sample to 500 val images per model; report in table footnote |
-| LIME cost            | `n_samples=500` for production; 20 for dev/CI                   |
+| Concern              | Recommendation                                                    |
+| -------------------- | ----------------------------------------------------------------- |
+| RISE cost (M=4000)   | Sub-sample to 500 val images per model; report in table footnote  |
+| LIME cost            | `n_samples=500` for production; 20 for dev/CI                     |
 | Seed reproducibility | Pass `seed=42` to E5, E6; fix `torch.manual_seed` before each run |
-| Swin-B explainers    | Use E3 (GradCAM) only; E1/E2/E4 auto-raise at runtime           |
+| Swin-B explainers    | Use E3 (GradCAM) only; E1/E2/E4 auto-raise at runtime             |
 
 ---
 
@@ -1234,11 +1240,11 @@ batch_norm = normalize_batch(batch_att, mode='softmax')
 
 ### 3.2.2 Mode Specifications (Guide §3.2)
 
-| Mode          | Formula                                          | Use case                              |
-| ------------- | ------------------------------------------------ | ------------------------------------- |
-| `minmax`      | `(att − min) / (max − min)` ; zeros if degenerate | Default; all fidelity + loc metrics   |
-| `percentile`  | clamp at 99th percentile → minmax               | Heavy-tailed maps (RISE, LIME)        |
-| `softmax`     | `softmax(att.flatten())` ; numerically stable    | EGT (L3), Effective Mass Ratio (C3)   |
+| Mode         | Formula                                           | Use case                            |
+| ------------ | ------------------------------------------------- | ----------------------------------- |
+| `minmax`     | `(att − min) / (max − min)` ; zeros if degenerate | Default; all fidelity + loc metrics |
+| `percentile` | clamp at 99th percentile → minmax                 | Heavy-tailed maps (RISE, LIME)      |
+| `softmax`    | `softmax(att.flatten())` ; numerically stable     | EGT (L3), Effective Mass Ratio (C3) |
 
 - Output always `float32`, values in `[0, 1]` (`softmax` sums to 1.0).
 - Degenerate (constant) maps return all-zeros for `minmax` and `percentile`.
@@ -1248,12 +1254,12 @@ batch_norm = normalize_batch(batch_att, mode='softmax')
 
 File: `tests/test_normalize.py` — **24 tests**, all passing.
 
-| Class                          | Tests | Category                                          |
-| ------------------------------ | ----- | ------------------------------------------------- |
-| `TestMinmax`                   | 6     | range, exact [0,1], degenerate, shape, batch, dtype |
-| `TestPercentile`               | 6     | range, outlier suppression, rank-preservation, batch |
-| `TestSoftmax`                  | 6     | sum=1, all-positive, batch, stability, uniform, shape |
-| `TestIntegrationAndEdgeCases`  | 6     | pipeline, invalid mode, 1-D rejection, batch guard, idempotent, enum |
+| Class                         | Tests | Category                                                             |
+| ----------------------------- | ----- | -------------------------------------------------------------------- |
+| `TestMinmax`                  | 6     | range, exact [0,1], degenerate, shape, batch, dtype                  |
+| `TestPercentile`              | 6     | range, outlier suppression, rank-preservation, batch                 |
+| `TestSoftmax`                 | 6     | sum=1, all-positive, batch, stability, uniform, shape                |
+| `TestIntegrationAndEdgeCases` | 6     | pipeline, invalid mode, 1-D rejection, batch guard, idempotent, enum |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1267,10 +1273,10 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
 
 File `metrics/runner.py` now contains **two classes**:
 
-| Class | Purpose |
-|---|---|
-| `BenchmarkRunner` | Task 2.x L1–L4 loop (unchanged, backward-compatible) |
-| `Phase3Runner` | Guide Listing 4 — full `dataset × model × explainer` matrix |
+| Class             | Purpose                                                     |
+| ----------------- | ----------------------------------------------------------- |
+| `BenchmarkRunner` | Task 2.x L1–L4 loop (unchanged, backward-compatible)        |
+| `Phase3Runner`    | Guide Listing 4 — full `dataset × model × explainer` matrix |
 
 ### 3.3.1 Phase3Runner API
 
@@ -1325,12 +1331,12 @@ All flags: `--checkpoint-dir`, `--seed`, `--max-batches`, `--norm-mode`, `--patc
 
 File: `tests/test_runner.py` — **36 tests**, all passing.
 
-| Class                 | Tests | Category                                              |
-| --------------------- | ----- | ----------------------------------------------------- |
-| `TestPhase3RunnerInit`| 9     | Constructor attributes, device, norm_mode, patch_size |
-| `TestRunCombination`  | 9     | Batch flow, schema, normalisation, masks, pkl write   |
-| `TestRun`             | 9     | Dir creation, one pkl/combo, skip, seed repro, resume |
-| `TestCLI`             | 9     | --help, defaults, flags, invalid mode, --list-ckpts   |
+| Class                  | Tests | Category                                              |
+| ---------------------- | ----- | ----------------------------------------------------- |
+| `TestPhase3RunnerInit` | 9     | Constructor attributes, device, norm_mode, patch_size |
+| `TestRunCombination`   | 9     | Batch flow, schema, normalisation, masks, pkl write   |
+| `TestRun`              | 9     | Dir creation, one pkl/combo, skip, seed repro, resume |
+| `TestCLI`              | 9     | --help, defaults, flags, invalid mode, --list-ckpts   |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1338,7 +1344,7 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
   Full suite     : 185 passed, 2 skipped (CUDA), 0 failed
 ```
 
-```
+````
 
 ---
 
@@ -1366,18 +1372,18 @@ results = run_all_sanity_checks(
     seed=42
 )
 # Returns Dict[str, SanityResult]: {'S1': S1Result, 'S2': S2Result, 'S3': S3Result}
-```
+````
 
 ### 3.4.2 Unit Tests (Task 3.4)
 
 File: `tests/test_sanity.py` — **16 tests**, all passing.
 
-| Class                     | Tests | Category                                               |
-| ------------------------- | ----- | ------------------------------------------------------ |
-| `TestS1RandomBaseline`    | 5     | S1 Result schema, entropy/gini empirical thresholds    |
-| `TestS2ModelRandomisation`| 5     | Monotonic decrease check, slack factor for tiny models |
-| `TestS3LabelPermutation`  | 4     | Independence vs gradient-dependence, Spearman scores   |
-| `TestSanityIntegration`   | 2     | Dictionary extraction and JSON-serialisation safety    |
+| Class                      | Tests | Category                                               |
+| -------------------------- | ----- | ------------------------------------------------------ |
+| `TestS1RandomBaseline`     | 5     | S1 Result schema, entropy/gini empirical thresholds    |
+| `TestS2ModelRandomisation` | 5     | Monotonic decrease check, slack factor for tiny models |
+| `TestS3LabelPermutation`   | 4     | Independence vs gradient-dependence, Spearman scores   |
+| `TestSanityIntegration`    | 2     | Dictionary extraction and JSON-serialisation safety    |
 
 ```
 Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
@@ -1575,11 +1581,12 @@ vit-explainability-benchmark/
 
 ### Phase 3 — Task 3.1 Checklist
 ```
+
 ☑ BaseExplainer ABC — explain(x, target_class) → (P, P) tensor contract
 ☑ explain_batch() default loop; overridable for amortised methods
 ☑ UnsupportedArchitectureError — raised by E1/E2/E4 on Swin-B
-☑ _get_timm_blocks(), _has_cls_token(), _to_patch_grid() — shared helpers
-☑ _capture_attn_weights() — fused_attn-safe attention hook
+☑ \_get_timm_blocks(), \_has_cls_token(), \_to_patch_grid() — shared helpers
+☑ \_capture_attn_weights() — fused_attn-safe attention hook
 ☑ E1 RawAttentionExplainer — last-block CLS row, mean over heads (explainers/raw_attention.py)
 ☑ E2 AttentionRolloutExplainer — recursive A-hat product, drop-residual option (explainers/rollout.py)
 ☑ E3 GradCAMExplainer — gradient hooks, ReLU, bilinear upsample (explainers/gradcam.py)
@@ -1589,10 +1596,12 @@ vit-explainability-benchmark/
 ☑ E7 DIMEExplainer — placeholder stub, NotImplementedError + BENCHMARK.md ref (explainers/dime.py)
 ☑ 26 unit tests passing + 1 documented skip — tests/test_explainers.py
 ☑ Full test suite: 125 passed, 2 skipped, 0 failed (2026-04-10)
+
 ```
 
 ### Phase 3 — Task 3.2 Checklist
 ```
+
 ☑ normalize_attribution(att_map, mode) — Guide Listing 3 canonical API
 ☑ normalize_batch(att_maps, mode) — strict (B,Hp,Wp) enforcer
 ☑ NormMode enum — 'minmax', 'percentile', 'softmax'
@@ -1602,7 +1611,40 @@ vit-explainability-benchmark/
 ☑ softmax: numerically stable (max-shifted); sums to 1.0
 ☑ Batch (B,Hp,Wp): each sample normalised independently
 ☑ Output always float32; input accepts float16/32/64
-☑ metrics/__init__.py updated — normalize_attribution in torch-free block
+☑ metrics/**init**.py updated — normalize_attribution in torch-free block
 ☑ 24 unit tests — tests/test_normalize.py — 24 passing
 ☑ Full suite: 149 passed, 2 skipped (CUDA), 0 failed (2026-04-10)
+
+```
+
+---
+
+# Phase 4 — Analysis, Ablations & Theoretical Grounding
+
+This section documents the experimental results constructed from the Phase 3 evaluation pipeline.
+
+## 4.1 Inter-Metric Correlation
+
+> **[PLACEHOLDER: Insert Inter-metric correlation heatmap here]**
+
+*Summary of findings:*
+- [PLACEHOLDER: Detail if metrics measure orthogonal properties or if any are highly correlated (|?| > 0.9)]
+- [PLACEHOLDER: Factor Analysis latent variance breakdown]
+
+## 4.2 Task-Metric Interaction
+
+> **[PLACEHOLDER: Insert Kendall tau concordance matrix and Decision Tree]**
+
+*Summary of findings:*
+- [PLACEHOLDER: Discordances identified across datasets]
+- [PLACEHOLDER: Practitioner decision tree recommendations]
+
+## 4.3 Ablation Studies
+
+| Ablation | Variable Changed | Effect Size (Cohen's d) | Key Observation |
+|----------|------------------|-------------------------|-----------------|
+| A1 | Token Resolution (patch vs CLS) | [PLACEHOLDER] | [PLACEHOLDER] |
+| A2 | Layer Depth (last vs all) | [PLACEHOLDER] | [PLACEHOLDER] |
+| A3 | Masking (zero vs mean) | [PLACEHOLDER] | [PLACEHOLDER] |
+| A4 | Pre-training (Sup vs MAE) | [PLACEHOLDER] | [PLACEHOLDER] |
 ```
