@@ -778,8 +778,7 @@ n = normalise_attribution(att_map, 'minmax')  # [0, 1]
 
 ### 2.4.5 Unit Tests (C1–C3)
 
-File: `tests/test_complexity.py` — **59 tests** (28 pure-numpy pass unconditionally;
-7 torch-model tests skipped when torch is not installed).
+**File: `tests/test_complexity.py`** — **45 tests**, all passing (pure-numpy, no torch required).
 
 | Class                        | Tests | Category                                         |
 | ---------------------------- | ----- | ------------------------------------------------ |
@@ -791,8 +790,23 @@ File: `tests/test_complexity.py` — **59 tests** (28 pure-numpy pass unconditio
 | `TestTheoremT6`              | 3     | Anti-alignment (Gini/Entropy/EMR × Symmetry)     |
 | `TestSanityCheck`            | 1     | End-to-end sanity check ordering                 |
 
+**File: `tests/test_torch_complexity.py`** — **7 PyTorch-specific tests** (skipped when torch absent).
+
+| ID     | Class                          | Tests | What is tested                                           |
+| ------ | ------------------------------ | ----- | -------------------------------------------------------- |
+| PT_C1  | `TestGiniBatchTorchShape`      | 3     | `gini_batch_torch` output shape (B,), flat, dtype        |
+| PT_C2  | `TestGiniBatchTorchValues`     | 3     | Values match numpy reference; one-hot; uniform           |
+| PT_C3  | `TestEntropyBatchTorchRange`   | 2     | `entropy_batch_torch` range [0,1]; spiky map → near 0   |
+| PT_C4  | `TestEntropyBatchTorchUniform` | 2     | Uniform map → H_norm = 1.0; batch of uniforms            |
+| PT_C5  | `TestEmrBatchTorchOneHot`      | 3     | One-hot → EMR=1/N; uniform → EMR≈0.9; batch shape       |
+| PT_C6  | `TestComputeBatchTorchTensor`  | 3     | `compute_batch` accepts `(B,H_p,W_p)` torch.Tensor      |
+| PT_C7  | `TestDownsampleAttribution`    | 4     | `downsample_attribution` shape, non-negativity, 2D guard |
+
 ```
-Results: 59 passed, 7 skipped (torch not installed), 0 failed
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_complexity.py      : 45 passed, 0 failed
+  test_torch_complexity.py: 20 passed, 0 failed, 1 skipped (CUDA)
+  Combined Task 2.4       : 65 passed, 0 failed
 ```
 
 ---
@@ -1020,19 +1034,33 @@ generate_axiom_satisfaction_heatmap(output_path="figures/axiom_satisfaction.pdf"
 
 ### 2.5.5 Unit Tests (Axiomatic Analysis)
 
-File: `tests/test_axiom_verifier.py` — **21 tests** (14 pass unconditionally;
-7 torch-model tests skipped without torch).
+**File: `tests/test_axiom_verifier.py`** — **20 tests**, all passing (14 torch-dependent via `@requires_torch`, 6 pure-numpy).
 
 | Class                     | Tests | Category                             |
 | ------------------------- | ----- | ------------------------------------ |
-| `TestLinearPatchModel`    | 4     | Toy model forward pass               |
-| `TestXORInteractionModel` | 3     | Multiplicative interaction model     |
+| `TestLinearPatchModel`    | 4     | Toy model forward pass (torch)       |
+| `TestXORInteractionModel` | 3     | Multiplicative interaction (torch)   |
 | `TestAxiomVerifierC1C3`   | 11    | A1–A4 tests, run_all, table building |
 | `TestAxiomTestResult`     | 2     | Dataclass serialisation              |
 | `TestTheoremT6Canonical`  | 1     | Canonical T6 empirical proof         |
 
+**File: `tests/test_torch_axioms.py`** — **7 PyTorch-specific tests** (skipped when torch absent).
+
+| ID     | Class                                    | Tests | What is tested                                                  |
+| ------ | ---------------------------------------- | ----- | --------------------------------------------------------------- |
+| PT_A1  | `TestVerifyCompletenessLinear`           | 2     | `verify_completeness` returns 4 keys; finite error              |
+| PT_A2  | `TestVerifyCompletenessXOR`              | 1     | XOR model illustrates Theorem T1 counterexample                 |
+| PT_A3  | `TestVerifyDummyAxiomPasses`             | 1     | `verify_dummy_axiom` returns 7 keys; values in [0,1]            |
+| PT_A4  | `TestVerifyDummyAxiomFails`              | 1     | Wrong attribution → non-zero dummy_attribution_ratio            |
+| PT_A5  | `TestAxiomVerifierA3GiniAntialignment`   | 1     | Theorem T6: Gini A3 delta < 0 via verifier (torch backend)      |
+| PT_A6  | `TestVerifyRolloutDummyViolation`        | 1     | `verify_rollout_dummy_violation` interface contract + keys       |
+| PT_A7  | `TestGiniBatchTorchCPUGPUConsistency`   | 2     | `gini_batch_torch` deterministic on CPU; GPU agree (skip CUDA)  |
+
 ```
-Results: 21 passed (14 unconditional + 7 skipped without torch), 0 failed
+Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
+  test_axiom_verifier.py : 20 passed, 0 failed
+  test_torch_axioms.py   : 8 passed, 0 failed, 1 skipped (CUDA)
+  Combined Task 2.5      : 28 passed, 0 failed
 ```
 
 ---
