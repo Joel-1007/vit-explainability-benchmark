@@ -1397,58 +1397,88 @@ Results (2026-04-10, CPU, Python 3.11.8 / PyTorch 2.10.0):
 
 ```
 vit-explainability-benchmark/
-├── BENCHMARK.md             ← THIS FILE — single authoritative reference
+├── BENCHMARK.md                        ← THIS FILE — single authoritative reference
 │
 ├── model_zoo/
-│   ├── __init__.py          # load_model() dispatcher
-│   ├── vit_b16.py           # Model 1 — ViT-B/16 (timm augreg_in21k)
-│   ├── deit_b16.py          # Model 2 — DeiT-B/16 distilled
-│   ├── swin_b.py            # Model 3 — Swin-B
-│   ├── beit_b16.py          # Model 4 — BEiT-B/16
-│   ├── dino_vitb8.py        # Model 5 — DINO-ViT-B/8
-│   └── dinov2_vitb14.py     # Model 6 — DINOv2-ViT-B/14
+│   ├── __init__.py                     # load_model() dispatcher
+│   ├── vit_b16.py                      # Model 1 — ViT-B/16 (timm augreg_in21k)
+│   ├── deit_b16.py                     # Model 2 — DeiT-B/16 distilled
+│   ├── swin_b.py                       # Model 3 — Swin-B
+│   ├── beit_b16.py                     # Model 4 — BEiT-B/16
+│   ├── dino_vitb8.py                   # Model 5 — DINO-ViT-B/8
+│   └── dinov2_vitb14.py                # Model 6 — DINOv2-ViT-B/14
 │
 ├── training/
 │   ├── __init__.py
-│   ├── transforms.py        # RandAugment + random erasing pipeline
-│   ├── mixup.py             # Batch-level Mixup α=0.8
-│   ├── optimizer.py         # AdamW + LR warmup + cosine decay
-│   ├── loss.py              # SoftTargetCrossEntropy / BCE (CheXpert)
-│   └── trainer.py           # Full fine-tune loop with grad accumulation
+│   ├── transforms.py                   # RandAugment + random erasing pipeline
+│   ├── mixup.py                        # Batch-level Mixup α=0.8
+│   ├── optimizer.py                    # AdamW + LR warmup + cosine decay
+│   ├── loss.py                         # SoftTargetCrossEntropy / BCE (CheXpert)
+│   └── trainer.py                      # Full fine-tune loop with grad accumulation
+│
+├── explainers/
+│   ├── __init__.py                     # All explainer exports
+│   ├── base.py                         # BaseExplainer ABC + shared helpers
+│   ├── raw_attention.py                # E1 — Raw CLS attention (last block)
+│   ├── rollout.py                      # E2 — Attention Rollout (recursive Â)
+│   ├── gradcam.py                      # E3 — GradCAM (hook-based, ReLU)
+│   ├── chefer_lrp.py                   # E4 — Chefer et al. LRP (pure-PyTorch)
+│   ├── rise.py                         # E5 — RISE (4000 float16 masks, chunked)
+│   ├── lime.py                         # E6 — LIME (patch-grid, ridge regression)
+│   └── dime.py                         # E7 — DIME (placeholder — see §3.1.2)
 │
 ├── metrics/
-│   ├── __init__.py          # All public exports (torch-free first)
-│   ├── localization.py      # L1–L4 (requires torch)
-│   ├── robustness.py        # R1–R3 + model utilities (requires torch)
-│   ├── complexity.py        # C1–C3 (torch-free; optional GPU batch ops)
-│   ├── axiom_verifier.py    # AxiomVerifier, verify_completeness, Figure F1
-│   └── runner.py            # BenchmarkRunner unified evaluation loop
+│   ├── __init__.py                     # All public exports (torch-free first)
+│   ├── fidelity.py                     # F1–F3 Sufficiency / Comprehensiveness / Log-odds
+│   ├── localization.py                 # L1–L4 (requires torch)
+│   ├── robustness.py                   # R1–R3 + model utilities (requires torch)
+│   ├── complexity.py                   # C1–C3 (torch-free; optional GPU batch ops)
+│   ├── axiom_verifier.py               # AxiomVerifier, verify_completeness, Figure F1
+│   ├── normalize.py                    # Attribution normalisation (minmax/percentile/softmax)
+│   ├── sanity.py                       # Sanity checks S1–S3
+│   └── runner.py                       # BenchmarkRunner + Phase3Runner
 │
 ├── tests/
-│   ├── test_localization.py   # 12 unit tests — L1–L4
-│   ├── test_robustness.py     # 16 unit tests — R1–R3
-│   ├── test_complexity.py     # 45 unit tests — C1–C3 + Theorem T6
-│   └── test_axiom_verifier.py # 21 unit tests — AxiomVerifier + T6 canonical
+│   ├── test_fidelity.py                #  5 unit tests — F1–F3
+│   ├── test_localization.py            # 12 unit tests — L1–L4
+│   ├── test_robustness.py              # 16 unit tests — R1–R3
+│   ├── test_complexity.py              # 45 unit tests — C1–C3 + Theorem T6
+│   ├── test_torch_complexity.py        #  7 PyTorch-specific C1–C3 tests
+│   ├── test_axiom_verifier.py          # 20 unit tests — AxiomVerifier + T6
+│   ├── test_torch_axioms.py            #  7 PyTorch-specific axiom tests
+│   ├── test_normalize.py               # 24 unit tests — normalisation pipeline
+│   ├── test_explainers.py              # 26 unit tests — E1–E7 explainers
+│   ├── test_runner.py                  # 36 unit tests — Phase3Runner + CLI
+│   └── test_sanity.py                  # 16 unit tests — S1–S3
 │
-├── figures/                   # Generated PDFs (gitignored; generated on demand)
-│   ├── axiom_satisfaction.pdf # Figure F1 — 15×4 axiom heatmap
+├── figures/                            # Generated PDFs (gitignored; on demand)
+│   ├── axiom_satisfaction.pdf          # Figure F1 — 15×4 axiom heatmap
 │   └── complexity_distributions.pdf
 │
 ├── scripts/
-│   ├── record_model_hashes.py   # SHA-256 logging for reproducibility
-│   ├── pilot_finetune.py        # 5-epoch sanity check
-│   ├── verify_datasets.py       # Dataset integrity verification
-│   └── create_cub_val_split.py  # Stratified val split for CUB-200-2011
+│   ├── record_model_hashes.py          # SHA-256 logging for reproducibility
+│   ├── pilot_finetune.py               # 5-epoch sanity check
+│   ├── verify_datasets.py              # Dataset integrity verification
+│   ├── create_cub_val_split.py         # Stratified val split for CUB-200-2011
+│   ├── phase4_correlation_analysis.py  # Task 4.1 — Spearman correlation + PCA
+│   ├── phase4_interaction_analysis.py  # Task 4.2 — Kendall τ concordance
+│   └── phase4_ablations.py             # Task 4.3 — Ablation A1–A4 + Cohen's d
 │
 ├── configs/
-│   ├── cub200.yaml              # 50 epochs, fine-grained, 200 classes
-│   ├── pascal_voc.yaml          # 30 epochs, multi-label, 20 classes
-│   ├── imagenet_s50.yaml        # 30 epochs, 50-class subset
-│   └── nih_chestxray.yaml       # 30 epochs, class-weighted BCE, 14 classes
+│   ├── cub200.yaml                     # 50 epochs, fine-grained, 200 classes
+│   ├── pascal_voc.yaml                 # 30 epochs, multi-label, 20 classes
+│   ├── imagenet.yaml                   # ImageNet base config
+│   ├── imagenet_s50.yaml               # 30 epochs, 50-class subset
+│   └── nih_chestxray.yaml              # 30 epochs, class-weighted BCE, 14 classes
 │
-├── pyproject.toml               # uv project file (Python 3.13, dev: pytest, numpy)
-├── model_hashes.txt             # SHA-256 of all pre-trained checkpoints
-├── requirements.txt             # Pinned runtime dependency versions
+├── results/
+│   └── phase4/                         # Phase 4 analytics output directory
+│
+├── pyproject.toml                      # uv project file (Python 3.13)
+├── model_hashes.txt                    # SHA-256 of all pre-trained checkpoints
+├── requirements.txt                    # Pinned runtime dependency versions
+├── implementation_guide.md             # Step-by-step operational guide
+├── phase4-instructions.md              # Phase 4 execution instructions
 └── .gitignore
 ```
 
@@ -1614,6 +1644,35 @@ vit-explainability-benchmark/
 ☑ metrics/**init**.py updated — normalize_attribution in torch-free block
 ☑ 24 unit tests — tests/test_normalize.py — 24 passing
 ☑ Full suite: 149 passed, 2 skipped (CUDA), 0 failed (2026-04-10)
+
+```
+
+### Phase 3 — Task 3.3 Checklist
+```
+
+☑ Phase3Runner class — dataset × model × explainer matrix loop
+☑ Checkpoint design — one .pkl per (dataset, model, explainer) combination
+☑ Atomic write via .pkl.tmp → rename (corruption prevention)
+☑ Resume — re-running skips existing .pkl automatically
+☑ Seed reproducibility — torch.manual_seed(seed) per combination
+☑ CLI entry point — python -m metrics.runner with all flags
+☑ --dry-run, --list-checkpoints, --norm-mode, --patch-size flags
+☑ Backward-compatible BenchmarkRunner preserved
+☑ 36 unit tests — tests/test_runner.py — 36 passing
+☑ Full suite: 185 passed, 2 skipped (CUDA), 0 failed (2026-04-10)
+
+```
+
+### Phase 3 — Task 3.4 Checklist
+```
+
+☑ S1 Random Baseline — run_s1_random_baseline()
+☑ S2 Model Parameter Randomisation — run_s2_model_randomisation()
+☑ S3 Label Permutation — run_s3_label_permutation()
+☑ run_all_sanity_checks() — unified entry point
+☑ SanityResult dataclass — JSON-serialisable
+☑ 16 unit tests — tests/test_sanity.py — 16 passing
+☑ Full suite: 201 passed, 2 skipped (CUDA), 0 failed (2026-04-10)
 
 ```
 

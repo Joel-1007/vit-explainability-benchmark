@@ -3,7 +3,7 @@
 **A Comprehensive, Axiomatically-Grounded Explainability Benchmark for Vision Transformers**
 
 > **Target Venue:** IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)  
-> **Status:** Active Development (Phases 1 & 2 Complete)
+> **Status:** Active Development (Phases 1–3 Complete; Phase 4 analysis pending benchmark results)
 
 Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This repository provides a rigorous, unified, and mathematically grounded evaluation suite designed to generate consistent empirical evidence across multiple ViT architectures and diverse explanation methods.
 
@@ -57,10 +57,10 @@ cd vit-explainability-benchmark
 
 ### 2. Run the Benchmark Test Suite
 
-The metric suite is heavily tested (100+ unit tests). Run them to verify your environment. Some tests require PyTorch; if it is not installed in the environment, those tests will be gracefully skipped.
+The metric suite is heavily tested (200+ unit tests). Run them to verify your environment. Some tests require PyTorch; if it is not installed in the environment, those tests will be gracefully skipped.
 
 ```bash
-# Run all metrics tests (Localization, Robustness, Complexity, Axiomatic)
+# Run all metrics and explainer tests
 uv run pytest tests/ -v
 ```
 
@@ -94,26 +94,103 @@ print(f"Max Sensitivity (Robustness): {results['macro']['max_sensitivity']:.4f}"
 
 ```text
 vit-explainability-benchmark/
-├── BENCHMARK.md             # The core reference document
-├── model_zoo/               # Standardised ViT wrappers
-├── training/                # Shared fine-tuning protocol (AdamW + Cosine + Mixup)
-├── metrics/                 # The evaluation suite
-│   ├── fidelity.py          # F1–F3
-│   ├── localization.py      # L1–L4
-│   ├── robustness.py        # R1–R3
-│   ├── complexity.py        # C1–C3
-│   ├── axiom_verifier.py    # Empirical axiom testing (A1–A4)
-│   └── runner.py            # BenchmarkRunner loop
-├── tests/                   # 100+ Unit tests
-├── configs/                 # YAML configs for dataset-specific runs
-├── scripts/                 # Reproducibility data prep & logging
-└── pyproject.toml           # uv dependency management
+├── BENCHMARK.md                # The core reference document
+├── model_zoo/                  # Standardised ViT wrappers
+│   ├── __init__.py             # load_model() dispatcher
+│   ├── vit_b16.py              # Model 1 — ViT-B/16
+│   ├── deit_b16.py             # Model 2 — DeiT-B/16
+│   ├── swin_b.py               # Model 3 — Swin-B
+│   ├── beit_b16.py             # Model 4 — BEiT-B/16
+│   ├── dino_vitb8.py           # Model 5 — DINO-ViT-B/8
+│   └── dinov2_vitb14.py        # Model 6 — DINOv2-ViT-B/14
+├── training/                   # Shared fine-tuning protocol (AdamW + Cosine + Mixup)
+│   ├── transforms.py           # RandAugment + random erasing
+│   ├── mixup.py                # Batch Mixup α=0.8
+│   ├── optimizer.py            # AdamW + warmup + cosine
+│   ├── loss.py                 # SoftTargetCE / BCE
+│   └── trainer.py              # Full fine-tune loop
+├── explainers/                 # 7 explanation method implementations
+│   ├── base.py                 # BaseExplainer ABC
+│   ├── raw_attention.py        # E1 — Raw CLS attention
+│   ├── rollout.py              # E2 — Attention Rollout
+│   ├── gradcam.py              # E3 — GradCAM
+│   ├── chefer_lrp.py           # E4 — Chefer et al. LRP
+│   ├── rise.py                 # E5 — RISE (4000 masks)
+│   ├── lime.py                 # E6 — LIME (patch-grid)
+│   └── dime.py                 # E7 — DIME (placeholder)
+├── metrics/                    # The evaluation suite
+│   ├── fidelity.py             # F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
+│   ├── localization.py         # L1–L4 (mIoU, PG, EGT, CalibGap)
+│   ├── robustness.py           # R1–R3 (MaxSens, ModelRand, LabelRand)
+│   ├── complexity.py           # C1–C3 (Gini, Entropy, EMR)
+│   ├── axiom_verifier.py       # Empirical axiom testing (A1–A4)
+│   ├── normalize.py            # Attribution normalisation pipeline
+│   ├── sanity.py               # Sanity checks S1–S3
+│   └── runner.py               # BenchmarkRunner + Phase3Runner
+├── tests/                      # 200+ unit tests
+├── configs/                    # YAML configs for dataset-specific runs
+├── scripts/                    # Reproducibility, data prep, Phase 4 analytics
+└── pyproject.toml              # uv dependency management
 ```
 
 ## Reproducibility Guarantees
 - SHA-256 hashes of all pre-trained models are locked in `model_hashes.txt`.
 - Data splits are deterministic.
 - All pseudo-random sampling in metrics (e.g., L2 tie-breaking, R1 noise generation) accepts explicit integer seeds.
+- The `Phase3Runner` checkpoints results per `(dataset, model, explainer)` combination for crash recovery.
+
+---
+
+## 🔧 Extending the Benchmark
+
+### Adding a New Explanation Method
+
+1. Create a new file in `explainers/`, e.g. `explainers/my_method.py`.
+2. Subclass `BaseExplainer` from `explainers/base.py`.
+3. Implement the `explain(x, target_class, **kwargs) → torch.Tensor` method:
+   - Input: `x` is a `(3, H, W)` float32 tensor in `[0, 1]`.
+   - Output: a `(H // patch_size, W // patch_size)` float32 tensor (un-normalised).
+4. Optionally override `explain_batch()` for amortised computation.
+5. Register the explainer in `explainers/__init__.py`.
+6. Add unit tests in `tests/` following the pattern in `test_explainers.py` (shape, finite, batch, variance checks).
+
+```python
+# explainers/my_method.py
+from explainers.base import BaseExplainer
+import torch
+
+class MyMethodExplainer(BaseExplainer):
+    def explain(self, x: torch.Tensor, target_class: int, **kwargs) -> torch.Tensor:
+        # Your attribution logic here
+        # Return shape: (H_patches, W_patches)
+        ...
+```
+
+### Adding a New Metric
+
+1. Create or extend a file in `metrics/`.
+2. Follow the pattern of existing metric classes (e.g., `LocalizationMetrics`, `ComplexityMetrics`).
+3. Ensure the metric accepts normalised attribution maps (use `metrics/normalize.py` upstream).
+4. Add the metric to the `BenchmarkRunner` or `Phase3Runner` integration in `metrics/runner.py`.
+5. Write unit tests with known-good inputs (perfect attribution → expected score) and known-bad inputs (random/misaligned → chance level).
+6. Document the formal definition, range, and direction (higher-is-better vs lower-is-better) in `BENCHMARK.md`.
+
+### Reproducing Figures
+
+```bash
+# Axiom satisfaction heatmap (Figure F1)
+uv run python -c "from metrics.axiom_verifier import generate_axiom_satisfaction_heatmap; generate_axiom_satisfaction_heatmap('figures/axiom_satisfaction.pdf')"
+
+# Complexity distributions
+uv run python -c "from metrics.complexity import run_sanity_check; run_sanity_check()"
+
+# Phase 4 analytics (requires Phase 3 results CSV)
+uv run python scripts/phase4_correlation_analysis.py --results_csv results/aggregated_results.csv --output_dir results/phase4
+uv run python scripts/phase4_interaction_analysis.py --results_csv results/aggregated_results.csv --output_dir results/phase4
+uv run python scripts/phase4_ablations.py --output_dir results/phase4
+```
+
+---
 
 ## 📊 Phase 4: Analysis & Findings (Experimental)
 *(Note: These are placeholders for Phase 4 empirical results.)*

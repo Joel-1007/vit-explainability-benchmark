@@ -1,10 +1,20 @@
 [project]
 name = "vit-explainability-benchmark"
 version = "0.1.0"
-description = "Add your description here"
+description = "A comprehensive, axiomatically-grounded explainability benchmark for Vision Transformers (TPAMI)"
 readme = "README.md"
 requires-python = ">=3.13"
-dependencies = []
+license = { text = "MIT" }
+authors = [
+    { name = "Anonymous Authors", email = "anon@example.com" }
+]
+keywords = ["vision", "transformer", "explainability", "benchmark", "xai", "tpami"]
+dependencies = [
+    # Will be managed via requirements.txt or uv for precise pinning
+]
+
+[project.scripts]
+vit-bench = "main:main"
 
 [dependency-groups]
 dev = [

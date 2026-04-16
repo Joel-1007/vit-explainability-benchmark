@@ -37,7 +37,7 @@ def plot_correlation_heatmap(corr_matrix: pd.DataFrame, output_path: str):
     Plots and saves a heatmap of the correlation matrix.
     """
     plt.figure(figsize=(12, 10))
-    sns.heatmap(corr_matrix, annot=True, cmap="coolwarm", fmt=".2f", vmin=-1, vmax=1)
+    sns.heatmap(corr_matrix, annot=True, cmap="viridis", fmt=".2f", vmin=-1, vmax=1)
     plt.title("Inter-Metric Spearman Rank Correlation")
     plt.tight_layout()
     plt.savefig(output_path)

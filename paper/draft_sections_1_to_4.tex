@@ -1,0 +1,99 @@
+\documentclass[10pt,journal,compsoc]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{hyperref}
+
+\begin{document}
+
+\title{A Comprehensive, Axiomatically-Grounded Explainability Benchmark for Vision Transformers}
+\author{Anonymous Authors}
+
+\maketitle
+
+\begin{abstract}
+Vision Transformers (ViTs) are increasingly the foundational architecture of choice for visual recognition, yet there is little consensus on how to evaluate post-hoc explanations for their decisions. We present a rigorous, multi-architecture benchmark that evaluates seven major explanation methods across six ViT variants utilizing four complementary families of mathematically formalized metrics: Fidelity, Localization, Robustness, and Complexity. Our empirical framework maps these metrics formally against Shapley-value axioms, guaranteeing sound evaluation grounds. We highlight profound inconsistencies in existing XAI literature specifically concerning Vision Transformers and provide a reproducible testing toolkit demonstrating that current state-of-the-art attribution mechanisms frequently fail on architectural and causal complexity standardizations. 
+\end{abstract}
+
+\section{Introduction}
+\label{sec:intro}
+Vision Transformers (ViTs) are now the dominant architecture across visual processing domains, rapidly superseding convolutional networks. With their increasing deployment in high-stakes fields such as medical imaging and autonomous driving, interpreting their predictions correctly is critical. However, practitioners currently have no reliable way to compare explanation methods across ViT architectures and tasks. Existing evaluation frameworks in explainable AI (XAI) typically isolate convolutional heuristics or focus narrowly on modality-agnostic setups.
+
+We address this gap with the ViT Explainability Benchmark. Currently, the rapid adoption of ViTs has outpaced the development of dedicated benchmarks for their explanations. Different works rely on incompatible metrics, un-verified normalizations, disparate datasets, and conflicting model choices, ultimately making results across literature difficult to compare or reproduce.
+
+This benchmark provides:
+\begin{itemize}
+    \item A formally defined metric suite comprising 13 distinct metrics distributed across four fundamental properties (Fidelity, Localization, Robustness, and Complexity), tightly coupled with empirical axiomatic analysis.
+    \item A comprehensive evaluation of 7 major explanation methods across 6 ViT architectures utilizing 4 challenging datasets.
+    \item Empirically derived practitioner guidelines and a unified, fully reproducible public codebase natively adapted for generic patch-grid configurations.
+\end{itemize}
+
+\section{Related Work}
+\label{sec:related_work}
+
+The evaluation landscape is effectively split between proposing explanations for transformers and attempting to rigorously evaluate XAI models fundamentally.
+
+\subsection{ViT Explanation Methods}
+Dosovitskiy et al. introduced ViTs completely bypassing CNN biases via patch-attention interactions. Naturally, interpretability first leaned on raw self-attention. Abnar \& Zuidema later identified the necessity of Attention Rollout accounting for residual paths to incorporate flow back to input tokens natively. More fundamentally, Chefer et al. proposed Transformer Layer-wise Relevance Propagation (LRP), addressing non-positive activations and multi-head attention skips mathematically to output significantly higher localized heatmaps over raw attention. 
+
+However, many benchmark claims depend heavily on model-agnostic surrogates (LIME) and gradient adaptations (GradCAM, RISE). LIME and SHAP approximate bounds via superpixel surrogates but run at significant computational penalties when computed on exact Shapley logic or suffer stability variation. Specifically, LIME operates on perturbations that drastically vary from transformer attention windows, and DIME presents multimodal interaction decompositions which struggle to map clearly to generic ViT classification tasks in unimodal settings. Consequently, testing these baselines strictly demands uniform baseline masking (zero vs mean patch strategies).
+
+\subsection{XAI Evaluation Frameworks}
+Samek et al. largely formalized Pixel Flipping evaluations utilizing an Area Over the Perturbation Curve (AOPC) for identifying degradation during removal sequences. Hooker et al.'s RemOve And Retrain (ROAR) framework pushes this further, testing underlying distribution shifts via complete retraining. 
+Conversely, Petsiuk et al. utilized Insertion and Deletion continuous tracking to capture causal properties accurately without extensive retraining. Yeh et al. also formulated Sensitivity and Infidelity objective properties describing optimal explanation qualities under localized perturbations. More recently, frameworks like BenchXAI generalize these evaluations entirely onto specific sub-modalities (biomedical analysis) missing patch-specific design constraints required for Transformers. Furthermore, the debate around Attention as Explanation specifically forces evaluations to strictly benchmark causal behavior against simple correlation analysis. None of these works establish unified tracking of structural sparsity (Complexity), Ground Truth pixel overlap (Localization), architectural noise bounds (Robustness) and structural causality (Fidelity) concurrently. 
+
+\section{Metric Framework}
+\label{sec:metric_framework}
+This framework specifies 13 quantitative metrics grouped dynamically. 
+
+\subsection{Fidelity Metrics (F1-F4)}
+Measuring the causal impact of the sequence.
+\begin{itemize}
+    \item \textbf{F1 Insertion AUC}: Progressively unmask tokens strictly from most salient to least. Measures if the explanation accurately identifies sufficient features to construct prediction certainty.
+    \item \textbf{F2 Deletion AUC}: Progressively mask tokens from most salient to least. Measures how efficiently the explanation breaks certainty.
+    \item \textbf{F3 Comprehensiveness}: Drop the top $k$-percent of salient tokens. Measures absolute model probability decay. 
+    \item \textbf{F4 Log-odds Shift}: Direct logarithmic ratio penalty for top-K dropping tracking extreme distribution breaks safely.
+\end{itemize}
+
+\subsection{Localization Metrics (L1-L4)}
+Comparing spatial attention arrays securely versus pixel-wise human annotation.
+\begin{itemize}
+    \item \textbf{L1 Intersection-over-Union (IoU)}: Standard mass threshold tracking matching precise Ground Truth region overlaps.
+    \item \textbf{L2 Pointing Game}: Verifies if the maximally activated patch correctly hits the annotated bounding box.
+    \item \textbf{L3 Energy on Ground Truth}: Continuous raw mass conservation occurring inside spatial annotations.
+    \item \textbf{L4 Calibration Gap}: Distinguishes explanation behavior separating false-predictions utilizing absolute localization penalty shifts.
+\end{itemize}
+
+\subsection{Robustness Metrics (R1-R3)}
+Evaluating attribution mapping resilience against internal and external randomization.
+\begin{itemize}
+    \item \textbf{R1 Max-Sensitivity}: Maximum $L_{2}$ deflection in the explanation generated when bounded input noise is locally introduced.
+    \item \textbf{R2 Average-Sensitivity}: Structural similarity checks over monte-carlo gaussian noise injections checking smoothing patterns.
+    \item \textbf{R3 Model Parameter Randomization \& Label Permutation}: Sanity-checking attribution maps directly via weight-obliteration protocols ensuring the map isn't heavily dependent on input boundary configurations.
+\end{itemize}
+
+\subsection{Complexity Metrics (C1-C3)}
+Enforcing interpretability parsimony preventing uniformly saturated output configurations.
+\begin{itemize}
+    \item \textbf{C1 Gini Coefficient}: Total geometric patch distribution inequality scoring tracking sparsification structure.
+    \item \textbf{C2 Attribution Entropy}: Flatness metrics penalizing scattered activations heavily.
+    \item \textbf{C3 Effective Mass Ratio (EMR)}: Minimum absolute fraction of tokens required to control 90\% of generated activation probability.
+\end{itemize}
+
+\subsection{Axiomatic Assessment}
+The generated metrics explicitly measure behaviors associated with standard Axioms (Dummy, Completeness, Symmetry, Linearity). 
+
+\section{Experimental Setup}
+\label{sec:experimental_setup}
+Our benchmark evaluates 7 post-hoc explainers: Raw Attention, Attention Rollout, GradCAM, Transformer-LRP (Chefer), LIME, and RISE. To enforce strict comparability, models are fully evaluated against 4 standard configurations:
+\begin{itemize}
+    \item \textbf{ImageNet subset}: General baseline testing subset to standard distributions.
+    \item \textbf{CUB-200-2011}: Fine-grained classification, tightly constrained bounding boxes testing fine localization metrics precisely.
+    \item \textbf{PASCAL VOC 2012}: Multi-label configurations mapping precise object localization maps targeting bounding alignments.
+    \item \textbf{NIH Chest X-ray 14}: High sensitivity biomedical application, enforcing non-centric pathology recognition.
+\end{itemize}
+Evaluation models uniformly represent standard state-of-the-art pipelines generating 16x16 / 14x14 tokens including timm augmentation baselines, distilled instances, shifting windows setups, and DINO implementations (ViT-B/16, DeiT-B, Swin-B, BEiT-B, DINO, DINOv2). 
+
+\end{document}

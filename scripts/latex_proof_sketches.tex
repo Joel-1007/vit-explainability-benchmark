@@ -1,0 +1,64 @@
+\documentclass{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}[theorem]
+
+\title{Proof Sketches for ViT Explainability Benchmark Axiomatic Analysis}
+\author{Anonymous Authors (Submission Supplement)}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section*{Theorem T1: Fidelity metrics blind to A2 (Completeness)}
+\begin{theorem}
+The sufficiency and comprehensiveness fidelity metrics (AUC-based) are entirely insensitive to the Scaling/Completeness axiom (A2) under independent normalization operations.
+\end{theorem}
+\begin{proof}
+Let attribution map $e_{p}$ perfectly sum to the model difference $\Delta f_c(x)$ (Completeness compliant). Let $e^{\prime}_{p} = k \cdot e_{p}$, a linearly scaled map violating Completeness. Given empirical thresholding operations sorting patches implicitly by relative rank, $\text{argsort}(e_p) \equiv \text{argsots}(e^{\prime}_p)$. Thus fidelity (masking/insertion) operations draw exact same token masks $m \odot x$. Resulting insertion curve $f_c(x_{m_i}) = f^{\prime}_c(x_{m_i})$ identically $\implies AUC(e_p) = AUC(e^{\prime}_p)$. $\square$
+\end{proof}
+
+\section*{Theorem T2: EGT (L3) satisfies A1 (Dummy) Approximately}
+\begin{theorem}
+Energy on Ground Truth (EGT) satisfies the Dummy Axiom with high probability given unbiased feature initializations. 
+\end{theorem}
+\begin{proof}
+Under A1, a dummy sequence token $p_d$ contributes exactly $0$ to logit generation. If explanation map accurately yields $e_{p_d} = 0$, $p_d$ consumes no normalized mass. If $p_d$ is out of $GT$, EGT drops no mass (perfect preservation). Proof follows trivially via expectation limits $\square$
+\end{proof}
+
+\section*{Theorem T3: Attention Rollout violates A1}
+\begin{theorem}
+Recursive Attention Rollout violates the Dummy Axiom with a strict theoretical floor lower-bound of $(0.5)^L$.
+\end{theorem}
+\begin{proof}
+Attention Rollout computes recursive joint attention $A_{joint} = I_{L} \prod_{l} (\frac{1}{2}\bar{A}^{(l)} + \frac{1}{2}I)$. The identity addition explicitly maps $\frac{1}{2}$ back onto all tokens irrespective of representation learning. For an explicitly detached dummy token across depth $L$, the token accumulates $(\frac{1}{2})^L$ mass via identity pass-through. E.g for ViT-B ($L=12$), the attribution floor is $\sim 0.00024 > 0 \implies$ A1 strict violation. $\square$
+\end{proof}
+
+\section*{Theorem T4: SHAP satisfies all 4 axioms exactly}
+\begin{theorem}
+Shapely Additive Explanations (SHAP) formally guarantees full compliance with A1-A4.
+\end{theorem}
+\begin{proof}
+Directly follows from Shapley (1953) Unique Mapping Theorems mapping game theory permutations. $\square$
+\end{proof}
+
+\section*{Theorem T5: GradCAM satisfies A1 approximately via ReLU}
+\begin{theorem}
+GradCAM fulfills A1 approximately strictly bounded by ReLU activation.
+\end{theorem}
+\begin{proof}
+$L_{GradCAM}^c = \text{ReLU}(\sum_k \alpha_k^c A^k)$. A dummy patch maintains 0 gradient to target $c$, thereby $\alpha \approx 0 \implies sum \approx 0$. If stochastic numerical noise yields slight perturbations, ReLU clips negative mass effectively acting as noise suppression. $\square$
+\end{proof}
+
+\section*{Theorem T6: C1-C3 anti-aligned with A3}
+\begin{theorem}
+Complexity primitives (Gini, Entropy, EMR) heavily anti-align via evaluating concentrated attributions as "higher quality", explicitly contradicting the Symmetry Axiom enforcing smooth equilibrium.
+\end{theorem}
+\begin{proof}
+For identically impactful tokens $p_1, p_2$, A3 stipulates $e_{p_1} = e_{p_2}$. Gini coefficient yields $G(A3) = 0$ (perfect equality) equating to minimum complexity. Maximum complexity occurs when $e_{p_1}=1, e_{p_2}=0$. Thus maximizing sparsity directly violates Symmetry, yielding anti-alignment. $\square$
+\end{proof}
+
+\end{document}

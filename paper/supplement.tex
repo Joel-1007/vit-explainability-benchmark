@@ -1,0 +1,114 @@
+\documentclass[10pt,journal,compsoc]{IEEEtran}
+
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{booktabs}
+\usepackage{graphicx}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{corollary}{Corollary}[theorem]
+
+\begin{document}
+
+\title{Supplementary Material: A Comprehensive Explainability Benchmark for Vision Transformers}
+\author{Anonymous Authors}
+
+\maketitle
+
+\section{Full Metric Derivations}
+
+The benchmark quantifies behavior spanning 13 standard metrics $\phi(f, x) \in \mathbb{R}^{H_a \times W_a}$.
+
+\subsection{Fidelity Metrics (F1--F4)}
+Measuring causal sufficiency of isolated patch attributions. Let $\mathbf{1}_{M_\tau}$ be the thresholded binary token mask and $y^*$ be the model target class prediction.
+
+\subsubsection{F1: Sufficiency}
+\[
+\text{Suff}(\phi, f, x) = f(x)_{y^*} - f(x \odot \mathbf{1}_{M_\tau})_{y^*}
+\]
+Ideally, an isolated activation area is sufficient to recreate output context. Higher values indicate accurate feature subset tracking.
+
+\subsubsection{F2: Comprehensiveness}
+\[
+\text{Comp}(\phi, f, x) = f(x)_{y^*} - f(x \odot (1 - \mathbf{1}_{M_\tau}))_{y^*}
+\]
+
+\subsubsection{F3/F4: Log-Odds Shift}
+Measured rigorously against extreme class decay probabilities:
+\[
+\text{LogOddsDrop}(\phi, f, x) = \log \frac{f(x)_{y^*}}{1 - f(x)_{y^*}} - \log \frac{f(x')_{y^*}}{1 - f(x')_{y^*}}
+\]
+
+\subsection{Localization Metrics (L1--L4)}
+Comparing spatial attention mappings securely versus pixel-wise human annotation.
+
+\subsubsection{L1: Intersection-over-Union (IoU)}
+Evaluating threshold sets $\tau \in \{0.25, 0.50, 0.75\}$ via normalized map $\tilde{e}_p$:
+\[
+    \hat{M}_\tau = \{p : \tilde{e}_p \geq \tau\}, \quad \text{IoU}(\hat{M}_\tau, M^{GT}) = \frac{|\hat{M}_\tau \cap M^{GT}|}{|\hat{M}_\tau \cup M^{GT}|}
+\]
+
+\subsubsection{L2: Pointing Game}
+With $p^* = \arg\max_p e_p$:
+\[
+    \text{PG} = \mathbf{1}\!\left[p^* \in M^{GT}\right]
+\]
+
+\subsubsection{L3: Energy-Ground-Truth}
+Computed utilizing softmax-normalized mass concentration:
+\[
+    \tilde{e}_p = \frac{\exp(e_p)}{\sum_{q} \exp(e_q)}, \quad \text{EGT} = \sum_{p \in M^{GT}} \tilde{e}_p
+\]
+
+\subsubsection{L4: Calibration Gap}
+Where $\mathcal{C}$ and $\mathcal{I}$ encapsulate correct and incorrectly predicted pools:
+\[
+    \text{CalibGap} = \mathbb{E}_{i \in \mathcal{C}}\!\left[\text{EGT}_i\right] - \mathbb{E}_{i \in \mathcal{I}}\!\left[\text{EGT}_i\right]
+\]
+
+\subsection{Robustness Metrics (R1--R3)}
+Tracking random stability matrices under deep manipulation bounds.
+
+\subsubsection{R1: Maximum Sensitivity}
+Extracting bounded noise uniformly $\delta_k \sim \text{Uniform}(-\epsilon, +\epsilon)^d$:
+\[
+    \text{MaxSens}(\phi, x) = \max_{k=1,\ldots,K} \frac{\|\phi(f, x+\delta_k) - \phi(f, x)\|_2}{\|\phi(f, x)\|_2 + \varepsilon_\text{num}}
+\]
+
+\subsubsection{R2: Model Parameter Randomization (SSIM)}
+Evaluated against $f_\text{rand}$ standard distribution obliteration:
+\[
+    \text{SSIM}(A, B) = \frac{(2\mu_A\mu_B + C_1)(2\sigma_{AB} + C_2)}{(\mu_A^2 + \mu_B^2 + C_1)(\sigma_A^2 + \sigma_B^2 + C_2)}
+\]
+
+\subsection{Complexity Metrics (C1--C3)}
+\subsubsection{C1: Gini Coefficient}
+\[
+    \text{Gini} = \frac{\sum_{i=1}^n \sum_{j=1}^n |e_i - e_j|}{2n \sum_{i=1}^n e_i}
+\]
+
+\section{Axiomatic Proof Sketches}
+
+\begin{theorem}[Completeness Blindness]
+The sufficiency and comprehensiveness fidelity metrics (AUC-based) are entirely insensitive to the Scaling/Completeness axiom (A2) under independent normalization operations.
+\end{theorem}
+\begin{proof}
+Let attribution map $e_{p}$ perfectly sum to the model difference $\Delta f_c(x)$. Let $e^{\prime}_{p} = k \cdot e_{p}$, a linearly scaled map violating Completeness. Given empirical thresholding operations sorting patches implicitly by relative rank, fidelity (masking/insertion) operations draw exact same token masks $m \odot x$. Resulting insertion curve $f_c(x_{m_i}) = f^{\prime}_c(x_{m_i})$ identically $\implies AUC(e_p) = AUC(e^{\prime}_p)$. $\square$
+\end{proof}
+
+\begin{theorem}[Attention Rollout A1 Violation]
+Recursive Attention Rollout violates the Dummy Axiom with a strict theoretical floor lower-bound of $(0.5)^L$.
+\end{theorem}
+\begin{proof}
+Attention Rollout computes recursive joint attention $A_{joint} = I_{L} \prod_{l} (\frac{1}{2}\bar{A}^{(l)} + \frac{1}{2}I)$. The identity addition explicitly maps $\frac{1}{2}$ back onto all tokens irrespective of representation learning. For an explicitly detached dummy token across depth $L$, the token accumulates $(\frac{1}{2})^L$ mass via identity pass-through. E.g for ViT-B ($L=12$), the attribution floor is $\sim 0.00024 > 0 \implies$ A1 strict violation. $\square$
+\end{proof}
+
+\begin{theorem}[C1-C3 Symmetry Anti-Alignment]
+Complexity primitives heavily anti-align via evaluating concentrated attributions as higher quality, explicitly contradicting the Symmetry Axiom.
+\end{theorem}
+\begin{proof}
+For identically impactful tokens $p_1, p_2$, A3 stipulates $e_{p_1} = e_{p_2}$. Gini coefficient yields $G(A3) = 0$ (perfect equality) equating to minimum complexity. Maximum complexity occurs when $e_{p_1}=1, e_{p_2}=0$. Thus maximizing sparsity directly violates Symmetry, yielding anti-alignment. $\square$
+\end{proof}
+
+\end{document}
