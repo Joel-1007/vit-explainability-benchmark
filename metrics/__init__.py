@@ -91,6 +91,9 @@ try:
         randomise_classifier_labels,
         randomise_model_cascade,   # Task 2.3 addendum — cascading layer utility
     )
+    from .causal_fidelity import CausalMaskingMetric
+    from .adversarial_robustness import PGDRobustnessMetric
+    from .explainer_interaction import ExplainerInteractionGraph
     _TORCH_SUBMODULES_AVAILABLE = True
 except ModuleNotFoundError:
     _TORCH_SUBMODULES_AVAILABLE = False

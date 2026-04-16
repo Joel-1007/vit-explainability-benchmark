@@ -57,7 +57,7 @@ class ExplainerInteractionGraph:
         if mi_estimator is None:
             # Lazy import of sklearn's MI estimator.
             try:
-                from sklearn.metrics import mutual_info_regression
+                from sklearn.feature_selection import mutual_info_regression
             except Exception as e:
                 raise RuntimeError(
                     "scikit‑learn is required for the default MI estimator. "
@@ -240,4 +240,3 @@ if __name__ == "__main__":
     print("Communities:", comm)
     print("Redundancy:", red)
     print("Graph size:", G.number_of_nodes(), G.number_of_edges())
-"""

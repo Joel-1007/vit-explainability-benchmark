@@ -70,6 +70,7 @@ class CausalMaskingMetric:
         saliency: torch.Tensor,
         tau: float = 0.5,
         alpha: float = 10.0,
+        patch_size: Tuple[int, int] = (16, 16)
     ) -> torch.Tensor:
         """Return a soft mask in [0,1] from a saliency map.
 
@@ -80,11 +81,20 @@ class CausalMaskingMetric:
             are considered important.
         alpha: sigmoid sharpness. Larger values approximate a hard mask.
         """
-        # Compute the value at the given percentile
-        thresh = torch.quantile(saliency, tau)
-        # Sigmoid soft‑threshold
-        mask = torch.sigmoid(alpha * (saliency - thresh))
-        return mask
+        ph, pw = patch_size
+        sal_patch = F.max_pool2d(
+            saliency.unsqueeze(0).unsqueeze(0),
+            kernel_size=(ph, pw),
+            stride=(ph, pw),
+        ).squeeze()
+        thresh = torch.quantile(sal_patch, tau)
+        mask_patch = torch.sigmoid(alpha * (sal_patch - thresh))
+        mask_up = F.interpolate(
+            mask_patch.unsqueeze(0).unsqueeze(0),
+            size=(saliency.shape[0] * ph, saliency.shape[1] * pw),
+            mode="nearest",
+        ).squeeze()
+        return mask_up
 
     # ---------------------------------------------------------------------
     # In‑painting implementations
@@ -134,7 +144,7 @@ class CausalMaskingMetric:
             # ``self.mae`` returns the reconstructed image (same shape as input).
             recon = self.mae(img_batch.to(self.device), mask=mask_flat)
         recon = recon.squeeze(0).to(x.device)
-        # 3. Blend reconstructed region with original using the *soft* mask.
+        # 3. Direct soft‑mask blending – the sigmoid mask already provides a smooth transition
         return x * (1 - mask_up) + recon * mask_up
 
     # ---------------------------------------------------------------------
@@ -166,26 +176,84 @@ class CausalMaskingMetric:
         tau: float = 0.5,
         alpha: float = 10.0,
     ) -> float:
-        """Compute causal fidelity.
-
-        Parameters
-        ----------
-        model: torch.nn.Module – classifier.
-        x: (C, H, W) tensor – original image.
-        saliency: (H_a, W_a) tensor – explainer output.
-        target_class: int – class whose confidence is examined.
-        tau, alpha: soft‑mask hyper‑parameters (see ``_soft_mask``).
-        """
+        """Compute causal necessity."""
         model.eval()
         with torch.no_grad():
-            # Original confidence
             logits = model(x.unsqueeze(0))
             orig_conf = torch.softmax(logits, dim=-1)[0, target_class].item()
-            # Build soft mask from saliency
-            mask = self._soft_mask(saliency, tau=tau, alpha=alpha)
-            # Counterfactual image
+            mask = self._soft_mask(saliency, tau=tau, alpha=alpha, patch_size=(16, 16))
             x_cf = self._inpaint(x, mask)
             logits_cf = model(x_cf.unsqueeze(0))
             cf_conf = torch.softmax(logits_cf, dim=-1)[0, target_class].item()
         drop = max(orig_conf - cf_conf, 0.0)
         return drop / (orig_conf + 1e-8)
+
+    def compute_sufficiency(
+        self,
+        model: torch.nn.Module,
+        x: torch.Tensor,
+        saliency: torch.Tensor,
+        target_class: int,
+        tau: float = 0.5,
+        alpha: float = 10.0,
+    ) -> float:
+        """Return the sufficiency score (Eq. 2) normalised by uniform baseline."""
+        model.eval()
+        with torch.no_grad():
+            logits = model(x.unsqueeze(0))
+            orig_conf = torch.softmax(logits, dim=-1)[0, target_class].item()
+            mask = self._soft_mask(saliency, tau=tau, alpha=alpha, patch_size=(16, 16))
+            keep_mask = 1.0 - mask
+            x_keep = self._inpaint(x, keep_mask)
+            logits_keep = model(x_keep.unsqueeze(0))
+            keep_conf = torch.softmax(logits_keep, dim=-1)[0, target_class].item()
+        K = logits.shape[-1]
+        p_min = 1.0 / K
+        numerator   = keep_conf - p_min
+        denominator = orig_conf - p_min + 1e-8
+        return max(0.0, numerator / denominator)
+
+    def curve(
+        self,
+        model: torch.nn.Module,
+        x: torch.Tensor,
+        saliency: torch.Tensor,
+        target_class: int,
+        mode: str = "insertion",
+        steps: int = 20,
+        tau: float = 0.5,
+        alpha: float = 10.0,
+    ) -> Tuple[List[Tuple[float, float]], float]:
+        """Returns a list of (fraction, confidence) pairs and AUC."""
+        import numpy as np
+        ph, pw = 16, 16
+        H, W = x.shape[1], x.shape[2]
+        n_h, n_w = H // ph, W // pw
+        sal_patch = F.max_pool2d(
+            saliency.unsqueeze(0).unsqueeze(0),
+            kernel_size=(ph, pw),
+            stride=(ph, pw),
+        ).squeeze()
+        order = torch.argsort(sal_patch.flatten(), descending=True)
+        if mode == "insertion":
+            base = torch.zeros_like(x)
+        else:
+            base = x.clone()
+        results = []
+        for step in range(steps + 1):
+            frac = step / steps
+            k = int(frac * len(order))
+            idxs = order[:k]
+            mask = torch.zeros((n_h, n_w), device=x.device)
+            if float(len(idxs)) > 0:
+                mask.view(-1)[idxs] = 1.0
+            mask_up = F.interpolate(
+                mask.unsqueeze(0).unsqueeze(0), size=(H, W), mode="nearest"
+            ).squeeze()
+            cur = base * (1 - mask_up) + x * mask_up if mode == "insertion" else x * (1 - mask_up) + base * mask_up
+            with torch.no_grad():
+                conf = torch.softmax(model(cur.unsqueeze(0)), dim=-1)[0, target_class].item()
+            results.append((frac, conf))
+        fractions, confidences = zip(*results)
+        auc = float(np.trapz(confidences, fractions))
+        return results, auc
