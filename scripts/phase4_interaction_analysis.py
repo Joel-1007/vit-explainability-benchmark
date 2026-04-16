@@ -77,15 +77,16 @@ def main():
 
     print(f"Loading results from {args.results_csv}...")
     print("WARNING: Using dummy data. Implement actual data loading here.")
-    dummy_cols = ["F1", "L1", "explainer", "model", "dataset", "sample_id"]
-    df = pd.DataFrame(np.random.rand(100, 2), columns=dummy_cols[:2])
-    explainers = ["GradCAM", "LIME", "RISE"]
-    datasets = ["ImageNet", "CUB-200", "VOC"]
+    dummy_cols = ["F1", "F2", "L1", "L2", "explainer", "model", "dataset", "sample_id"]
+    N = 400
+    df = pd.DataFrame(np.random.rand(N, 4), columns=dummy_cols[:4])
+    explainers = ["GradCAM", "Rollout", "Chefer LRP", "Raw Attention"]
+    datasets = ["ImageNet-S-50", "CUB-200", "PASCAL VOC", "NIH ChestX-ray14"]
     
-    df["explainer"] = np.random.choice(explainers, 100)
+    df["explainer"] = np.random.choice(explainers, N)
     df["model"] = "ViT-B"
-    df["dataset"] = np.random.choice(datasets, 100)
-    df["sample_id"] = range(100)
+    df["dataset"] = np.random.choice(datasets, N)
+    df["sample_id"] = range(N)
 
     print("Computing rankings...")
     rankings_df = compute_rankings(df)
