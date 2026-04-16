@@ -57,6 +57,8 @@ from tqdm import tqdm
 from .localization import LocalizationMetrics
 from .complexity   import ComplexityMetrics
 from .robustness   import RobustnessMetrics
+from .causal_fidelity import CausalMaskingMetric
+from .adversarial_robustness import PGDRobustnessMetric
 from .normalize    import normalize_attribution
 
 log = logging.getLogger(__name__)
@@ -103,6 +105,8 @@ class BenchmarkRunner:
         randomised_model:       Optional[torch.nn.Module]  = None,
         label_randomised_model: Optional[torch.nn.Module]  = None,
         complexity:             Optional[ComplexityMetrics] = None,
+        causal_fidelity:        Optional[CausalMaskingMetric] = None,
+        pgd_robustness:         Optional[PGDRobustnessMetric] = None,
     ) -> None:
         self.metrics                = metrics
         self.explainer              = explainer
@@ -114,6 +118,8 @@ class BenchmarkRunner:
         self.randomised_model       = randomised_model
         self.label_randomised_model = label_randomised_model
         self.complexity             = complexity
+        self.causal_fidelity        = causal_fidelity
+        self.pgd_robustness         = pgd_robustness
 
         # Validate robustness dependency when robustness is requested
         if robustness is not None:
@@ -246,6 +252,25 @@ class BenchmarkRunner:
                             r3 = self.robustness.label_randomisation(att, att_shuf)
                             all_metrics["label_randomisation"].append(r3)
 
+                    # --- New Metrics: Causal Fidelity & Adversarial Robustness ---
+                    if self.causal_fidelity is not None:
+                        # Necessity (CF)
+                        cf = self.causal_fidelity.compute(
+                            model, images[i], att.to(self.device), labels[i].item()
+                        )
+                        all_metrics["causal_fidelity_necessity"].append(cf)
+                        # Sufficiency (CS)
+                        cs = self.causal_fidelity.compute_sufficiency(
+                            model, images[i], att.to(self.device), labels[i].item()
+                        )
+                        all_metrics["causal_fidelity_sufficiency"].append(cs)
+
+                    if self.pgd_robustness is not None:
+                        pgd = self.pgd_robustness.compute(
+                            model, images[i], lambda x: self.explainer(model, x)[0], labels[i].item()
+                        )
+                        all_metrics["pgd_robustness"].append(pgd)
+
                     # Partition for L4
                     is_correct = (preds[i] == labels[i]).item()
                     if is_correct:
@@ -300,6 +325,15 @@ class BenchmarkRunner:
                 f" | ModelRand={macro.get('model_randomisation', float('nan')):.4f}"
                 f" | LabelRand={macro.get('label_randomisation', float('nan')):.4f}"
                 if self.robustness is not None else ""
+            )
+            + (
+                f" | CF={macro.get('causal_fidelity_necessity', float('nan')):.4f}"
+                f" | CS={macro.get('causal_fidelity_sufficiency', float('nan')):.4f}"
+                if self.causal_fidelity is not None else ""
+            )
+            + (
+                f" | PGD={macro.get('pgd_robustness', float('nan')):.4f}"
+                if self.pgd_robustness is not None else ""
             )
         )
 

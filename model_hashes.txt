@@ -1,5 +1,60 @@
 ViT Explainability Benchmark — Pre-trained Model Hash Log
-Generated : 2026-04-09T18:06:40.110887
+Generated : 2026-04-11T10:21:33.357869
 Purpose   : Task 1.2 §6.4 — Reproducibility record
+============================================================
+
+Model      : ViT-B/16 (augreg IN-21K)
+Repo       : google/vit-base-patch16-224-in21k
+File       : model.safetensors
+SHA-256    : fd4e1169c7aa6c2dbfa8a6448be13b35abc0ee256190857c90009d12c094619b
+HF Commit  : b4569560a39a0f1af58e3ddaf17facf20ab919b0
+Local path : /Users/joeljohn/.cache/huggingface/hub/models--google--vit-base-patch16-224-in21k/snapshots/b4569560a39a0f1af58e3ddaf17facf20ab919b0/model.safetensors
+Date       : 2026-04-11T10:21:59.217931
+============================================================
+
+Model      : DeiT-B/16 distilled (IN-1K)
+Repo       : facebook/deit-base-distilled-patch16-224
+File       : pytorch_model.bin
+SHA-256    : 5800cb485496f93b4b6e8632e358526d9279e15691cac05d31483e57dbc1390e
+HF Commit  : a0fc9b37fdb63c112e76104f669208784ecfe4ea
+Local path : /Users/joeljohn/.cache/huggingface/hub/models--facebook--deit-base-distilled-patch16-224/snapshots/a0fc9b37fdb63c112e76104f669208784ecfe4ea/pytorch_model.bin
+Date       : 2026-04-11T10:22:24.035270
+============================================================
+
+Model      : Swin-B (IN-22K→IN-1K)
+Repo       : microsoft/swin-base-patch4-window7-224
+File       : model.safetensors
+SHA-256    : e2fef3925119a5bf28d0e7cf5319a6c4a6c724ad36d30bd512688607259ac2f1
+HF Commit  : 20d6c26ef6455d36c0a78671d787c5da57513d4b
+Local path : /Users/joeljohn/.cache/huggingface/hub/models--microsoft--swin-base-patch4-window7-224/snapshots/20d6c26ef6455d36c0a78671d787c5da57513d4b/model.safetensors
+Date       : 2026-04-11T10:22:44.709816
+============================================================
+
+Model      : BEiT-B/16 pre-train (IN-22K)
+Repo       : microsoft/beit-base-patch16-224-pt22k
+File       : model.safetensors
+SHA-256    : 18b08989cad41adba4900055a11899c5d28b1d22b1fd5198c126eb2007ea000e
+HF Commit  : 49128b46539bd7dfad519b5e1014b050edabd9f6
+Local path : /Users/joeljohn/.cache/huggingface/hub/models--microsoft--beit-base-patch16-224-pt22k/snapshots/49128b46539bd7dfad519b5e1014b050edabd9f6/model.safetensors
+Date       : 2026-04-11T10:23:10.872732
+============================================================
+
+Model      : DINOv2-ViT-B/14 (LVD-142M)
+Repo       : facebook/dinov2-base
+File       : model.safetensors
+SHA-256    : d73036b56966966d07975d696bde331762f37297e2f095de8cea0040c3aa0841
+HF Commit  : f9e44c814b77203eaa57a6bdbbd535f21ede1415
+Local path : /Users/joeljohn/.cache/huggingface/hub/models--facebook--dinov2-base/snapshots/f9e44c814b77203eaa57a6bdbbd535f21ede1415/model.safetensors
+Date       : 2026-04-11T10:23:33.116462
+============================================================
+
+Model      : DINO-ViT-B/8
+Source     : torch.hub.load('facebookresearch/dino:main', 'dino_vitb8')
+GitHub     : https://github.com/facebookresearch/dino
+Direct URL : https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth
+SHA-256    : 0dcd5c25e5cda6a920e7825484040cf9ca15993e1c09e227c7a961173d5c8b2e
+Note       : Hash is of the state_dict saved to a temp file; 
+             re-run to verify consistency.
+Date       : 2026-04-11T10:24:06.033127
 ============================================================
 
