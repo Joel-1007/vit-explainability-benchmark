@@ -215,6 +215,48 @@ class ExplainerInteractionGraph:
         """
         return self.build_graph(explainer_score_dict)
 
+    # ---------------------------------------------------------------------
+    # Analysis Utilities
+    # ---------------------------------------------------------------------
+    def community_performance(
+        self,
+        G: nx.Graph,
+        communities: Dict[str, int]
+    ) -> Dict[int, Dict[str, float]]:
+        """Aggregates redundancy and uniqueness attributes to the community level."""
+        stats = {}
+        for node, comm_id in communities.items():
+            if comm_id not in stats:
+                stats[comm_id] = {"redundancy": 0.0, "uniqueness": 0.0, "count": 0}
+            node_data = G.nodes[node]
+            stats[comm_id]["redundancy"] += node_data.get("redundancy", 0.0)
+            stats[comm_id]["uniqueness"] += node_data.get("uniqueness", 0.0)
+            stats[comm_id]["count"] += 1
+            
+        for c in stats:
+            count = stats[c].pop("count")
+            if count > 0:
+                stats[c] = {k: v / count for k, v in stats[c].items()}
+        return stats
+
+    def classify_explainers(self, G: nx.Graph) -> Dict[str, str]:
+        """Classifies explainers as Redundant, Complementary, Fragile, or Robust."""
+        categories = {}
+        for node, data in G.nodes(data=True):
+            r = data.get("redundancy", 0.0)
+            u = data.get("uniqueness", 0.0)
+            s = data.get("stability", 0.0)
+            
+            if r > u and r > s and r > 0.5:
+                categories[node] = "Redundant"
+            elif u > r and u > s and u > 0.5:
+                categories[node] = "Complementary"
+            elif s > r and s > u and s > 0.5:
+                categories[node] = "Fragile"
+            else:
+                categories[node] = "Robust"
+        return categories
+
 # -------------------------------------------------------------------------
 # Example usage (not executed during import)
 # -------------------------------------------------------------------------
