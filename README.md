@@ -93,6 +93,62 @@ print(f"Max Sensitivity (Robustness): {results['macro']['max_sensitivity']:.4f}"
 
 ---
 
+## 🎯 Recommended Running Strategy
+
+The benchmark is designed to be run in three progressive stages.  
+**Always start with the Pilot to verify everything works before committing GPU hours.**
+
+| Stage | Images | RISE masks | Models | Runtime (A100) | Command |
+|-------|--------|-----------|--------|----------------|---------|
+| **1. Pilot** | 50 | 100 | 1 | ~10 min | `bash run_pilot.sh` |
+| **2. Subsample** | 500 | 500 | 6 | ~4–6 hours | `bash run_benchmark.sh --max-images 500` |
+| **3. Full** | 5000+ | 4000 | 6 | ~3–5 days | `bash run_benchmark.sh` |
+
+### Stage 1 — Pilot Run (Start Here)
+
+Verifies the complete pipeline end-to-end in ~10 minutes:
+
+```bash
+# Set your dataset path first
+export DATA_ROOT="/data"    # adjust to actual path
+
+# Run the pilot
+bash run_pilot.sh
+```
+
+What the pilot tests:
+- ✅ All unit tests pass
+- ✅ GPU is detected and working  
+- ✅ Dataset loads correctly
+- ✅ All 6 explainers run without errors  
+- ✅ All metrics compute correctly
+- ✅ Checkpointing works (safe to interrupt/resume)
+- ✅ Phase 4 analytics scripts execute
+
+If the pilot completes without errors, you're ready for the full run.
+
+### Stage 2 — Subsample Run (Recommended for Validation)
+
+500 images per dataset gives statistically meaningful results in a manageable time:
+
+```bash
+# Uses max-batches to limit dataset size
+uv run python -m metrics.runner \
+    --checkpoint-dir results/subsample \
+    --max-batches 63 \       # 63 batches × 8 images ≈ 500 images
+    --seed 42
+```
+
+> RISE with 500 masks on 500 images is the approach recommended in the RISE paper for GPU-constrained evaluation. Results are reported with a table footnote noting the subsample.
+
+### Stage 3 — Full Run (Publication Results)
+
+```bash
+bash run_benchmark.sh
+```
+
+---
+
 ## 📂 Repository Architecture
 
 ```text

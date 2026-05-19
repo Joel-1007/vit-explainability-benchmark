@@ -1,0 +1,63 @@
+# configs/pilot.yaml
+# ============================================================
+# PILOT / SMOKE-TEST configuration
+# ============================================================
+# Purpose: Verify the full pipeline (data → explainers → metrics
+#          → analytics) runs end-to-end without errors, using a
+#          tiny image subset. NOT for publication results.
+#
+# Expected runtime on A100 : ~5–15 minutes
+# Expected runtime on CPU   : ~30–60 minutes
+# ============================================================
+
+# --- Dataset subset -------------------------------------------
+dataset:        cub200          # single dataset for pilot
+num_classes:    200
+max_images:     50              # only 50 images from the val set
+                                # (vs 5,794 in the full run)
+
+# --- Model (single model for speed) ---------------------------
+# Use only vit-b16 for the pilot; add others for the full run
+models:
+  - vit_b16
+
+# --- Explainers -----------------------------------------------
+# All 7 explainers are tested, but with reduced RISE masks
+explainers:
+  - raw_attention
+  - rollout
+  - gradcam
+  - chefer_lrp
+  - rise
+  - lime
+
+# --- RISE overrides (most expensive explainer) ----------------
+rise_n_masks:   100             # 100 masks vs 4000 in full run
+                                # (40× faster, still tests the path)
+rise_chunk_size: 50
+
+# --- DataLoader -----------------------------------------------
+batch_size:     8
+num_workers:    2
+input_size:     224
+
+# --- Runner ---------------------------------------------------
+max_batches:    7               # 7 batches × 8 images = 56 images ≈ max_images
+seed:           42
+norm_mode:      minmax
+patch_size:     16
+
+# --- Output ---------------------------------------------------
+checkpoint_dir: results/pilot
+output_dir:     results/pilot/phase4
+
+# --- AMP / precision ------------------------------------------
+amp:            true            # bfloat16 on A100
+
+# ============================================================
+# To run:
+#   bash run_pilot.sh
+# or:
+#   uv run python -m metrics.runner --max-batches 7 \
+#       --checkpoint-dir results/pilot --dry-run
+# ============================================================
