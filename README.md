@@ -3,7 +3,7 @@
 **A Comprehensive, Axiomatically-Grounded Explainability Benchmark for Vision Transformers**
 
 > **Target Venue:** IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)  
-> **Status:** Active Development (Phases 1 & 2 Complete)
+> **Status:** Active Development (Phases 1–3 Complete; Phase 4 analysis pending benchmark results)
 
 Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This repository provides a rigorous, unified, and mathematically grounded evaluation suite designed to generate consistent empirical evidence across multiple ViT architectures and diverse explanation methods.
 
@@ -48,16 +48,19 @@ We use [`uv`](https://docs.astral.sh/uv/) for fast and deterministic Python envi
 
 ```bash
 # Clone the repository
-git clone https://github.com/[YOUR-ORG]/vit-explainability-benchmark.git
+git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
 cd vit-explainability-benchmark
 
-# The repository uses uv for dependency management (Python 3.13)
-# Dependencies are specified in pyproject.toml
+# Install uv (if not already installed)
+pip install uv --user
+
+# Install all dependencies from the lock file (fully reproducible)
+uv sync
 ```
 
 ### 2. Run the Benchmark Test Suite
 
-The metric suite is heavily tested (100+ unit tests). Run them to verify your environment. Some tests require PyTorch; if it is not installed in the environment, those tests will be gracefully skipped.
+The metric suite is heavily tested (200+ unit tests). Run them to verify your environment. Some tests require PyTorch; if it is not installed in the environment, those tests will be gracefully skipped.
 
 ```bash
 # Run all metrics tests (Localization, Robustness, Complexity, Axiomatic)
@@ -104,11 +107,166 @@ vit-explainability-benchmark/
 │   ├── complexity.py        # C1–C3
 │   ├── axiom_verifier.py    # Empirical axiom testing (A1–A4)
 │   └── runner.py            # BenchmarkRunner loop
-├── tests/                   # 100+ Unit tests
+├── explainers/              # 7 XAI methods (Raw Attn, Rollout, GradCAM, LRP, RISE, LIME, DIME)
+├── tests/                   # 200+ unit tests
 ├── configs/                 # YAML configs for dataset-specific runs
-├── scripts/                 # Reproducibility data prep & logging
+├── scripts/                 # Phase 4 analytics, data prep, reproducibility
+├── paper/                   # LaTeX / manuscript assets
 └── pyproject.toml           # uv dependency management
 ```
+
+---
+
+## 🖥️ Running on an A100 Lab (HPC / SLURM Cluster)
+
+This section covers running the benchmark on an A100 GPU node in a university HPC environment.
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| CUDA | 12.1 (matches Dockerfile) |
+| Python | 3.13+ |
+| PyTorch | 2.2.0 |
+| `uv` | Latest |
+
+### 1. Log In & Verify the GPU
+
+```bash
+nvidia-smi
+# Should show: NVIDIA A100 with CUDA 12.x
+```
+
+### 2. Load Environment Modules
+
+Most HPC clusters use `module` to manage CUDA/Python versions:
+
+```bash
+module purge
+module load cuda/12.1
+module load python/3.13
+module list            # verify what is loaded
+```
+
+> ⚠️ Module names vary by cluster — run `module avail cuda` and `module avail python` to find the correct names.
+
+### 3. Clone & Install
+
+```bash
+# Use scratch/work storage (not home — usually quota-limited)
+cd /scratch/$USER
+
+git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
+cd vit-explainability-benchmark
+
+pip install uv --user
+uv sync
+```
+
+Verify PyTorch sees the A100:
+
+```bash
+uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+# Expected: True \n NVIDIA A100 ...
+```
+
+### 4. Set the Dataset Path
+
+Point `DATA_ROOT` to where the datasets live on the cluster:
+
+```bash
+export DATA_ROOT="/data"    # adjust to the correct shared storage path
+```
+
+The benchmark expects these sub-directories under `$DATA_ROOT`:
+
+| Dataset | Expected Path |
+|---------|---------------|
+| CUB-200-2011 | `$DATA_ROOT/cub200/` |
+| PASCAL VOC | `$DATA_ROOT/voc/` |
+| ImageNet-S50 | `$DATA_ROOT/imagenet_s50/` |
+| NIH ChestX-ray | `$DATA_ROOT/nih_chestxray/` |
+
+### 5. Run the Full Pipeline
+
+```bash
+bash run_benchmark.sh
+```
+
+The script runs 4 stages automatically:
+1. ✅ Environment integrity check (unit tests)
+2. 📋 Dataset verification
+3. 🔬 Phase 3 metric evaluation (checkpointed — safe to interrupt and resume)
+4. 📊 Phase 4 analytics → `results/phase4/`
+
+### 6. SLURM Job Submission
+
+If the cluster uses SLURM, use the following job script:
+
+```bash
+cat > run_vit_benchmark.slurm << 'EOF'
+#!/bin/bash
+#SBATCH --job-name=vit-bench
+#SBATCH --partition=gpu          # adjust partition name: run `sinfo`
+#SBATCH --gres=gpu:a100:1        # 1 × A100
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/bench_%j.out
+#SBATCH --error=logs/bench_%j.err
+
+module purge
+module load cuda/12.1
+module load python/3.13
+
+cd /scratch/$USER/vit-explainability-benchmark
+export DATA_ROOT="/data"
+
+bash run_benchmark.sh
+EOF
+
+mkdir -p logs
+sbatch run_vit_benchmark.slurm
+
+# Monitor
+squeue -u $USER
+tail -f logs/bench_<JOB_ID>.out
+```
+
+### 7. A100-Specific Optimizations
+
+The A100 supports **bfloat16** and **TF32** natively. Add these lines to `main.py` for maximum throughput:
+
+```python
+import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+```
+
+### Expected Runtime on A100
+
+| Stage | Estimated Time |
+|-------|----------------|
+| Test suite | ~2–5 min |
+| Full Phase 3 benchmark | ~4–8 hours |
+| Phase 4 analytics | ~15–30 min |
+
+> The `Phase3Runner` checkpoints results per `(dataset, model, explainer)` — it can be safely interrupted and resumed at any point without re-running completed combinations.
+
+### Docker / Singularity (Alternative)
+
+The repo ships with a `Dockerfile` pre-configured for **CUDA 12.1 + PyTorch 2.2**:
+
+```bash
+# Docker
+docker build -t vit-bench .
+docker run --gpus all -v /data:/data -e DATA_ROOT=/data vit-bench bash run_benchmark.sh
+
+# Singularity (common in HPC environments)
+singularity build vit_bench.sif docker://pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+```
+
+---
 
 ## Reproducibility Guarantees
 - SHA-256 hashes of all pre-trained models are locked in `model_hashes.txt`.
