@@ -3,80 +3,108 @@
 **A Comprehensive, Axiomatically-Grounded Explainability Benchmark for Vision Transformers**
 
 > **Target Venue:** IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)  
-> **Status:** Active Development (Phases 1–3 Complete; Phase 4 analysis pending benchmark results)
-
-Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This repository provides a rigorous, unified, and mathematically grounded evaluation suite designed to generate consistent empirical evidence across multiple ViT architectures and diverse explanation methods.
+> **Status:** Phases 1–3 code complete · Phase 3 computational run pending · Phase 4 analysis scripts ready
 
 ---
 
-## 📖 Authoritative Documentation
+## Overview
 
-All formal metric definitions, mathematical proofs, experimental protocols, API layouts, and unit test specifications are documented in the single authoritative reference file:
+Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **7 explanation methods**, and **4 datasets**, measuring **13 metrics** spanning Fidelity, Localization, Robustness, and Complexity.
 
-👉 **[BENCHMARK.md](BENCHMARK.md)**
-
-Please read `BENCHMARK.md` before diving into the code. It supersedes all individual task documents.
+> 📖 **Full technical reference:** [BENCHMARK.md](BENCHMARK.md) — contains all metric definitions, mathematical proofs, experimental protocols, and API specifications.
 
 ---
 
-## 🚀 Key Capabilities
+## Key Capabilities
 
-The framework systematically evaluates spatial interpretation methods across four critical dimensions:
+| Dimension | Metrics | What it measures |
+|-----------|---------|------------------|
+| **Fidelity (F1–F3)** | Sufficiency, Comprehensiveness, Log-odds | Does removing highlighted patches destroy model confidence? |
+| **Localization (L1–L4)** | mIoU, Pointing Game, EGT, CalibGap | Does the explanation highlight the object of interest? |
+| **Robustness (R1–R3)** | MaxSens, ModelRand, LabelRand | Is the explanation stable under perturbations? |
+| **Complexity (C1–C3)** | Gini, Entropy, Effective Mass Ratio | Is the explanation parsimonious and interpretable? |
 
-1. **Localization (L1–L4):** Does the explanation highlight the object of interest? (mIoU, Pointing Game, EGT, CalibGap).
-2. **Robustness (R1–R3):** How sensitive is the explanation to irrelevant input perturbations, model randomisation, and label randomisation? (MaxSens, ModelRand, LabelRand).
-3. **Complexity (C1–C3):** How parsimonious is the explanation? Are the decisive patches compact and easily understandable? (Gini, Entropy, Effective Mass Ratio).
-4. **Fidelity (F1–F3):** Does removing the highlighted patches actually destroy the model's confidence? (Sufficiency, Comprehensiveness, Log-odds Drop).
+Additionally, the **Axiomatic Analysis Tool** (`AxiomVerifier`) maps every metric against the four Shapley axioms (Dummy, Completeness, Symmetry, Linearity), surfacing representational biases — including Theorem T6: the anti-alignment of complexity and symmetry.
 
-Furthermore, the suite includes an **Axiomatic Analysis Tool** (`AxiomVerifier`) to map every empirical metric against the four fundamental Shapley axioms (Dummy, Completeness, Symmetry, Linearity) to surface representational biases (e.g., Theorem T6: the anti-alignment of complexity and symmetry).
+### Model Zoo
 
-### Controlled Model Zoo
-To decouple explanation variation from training noise, the benchmark includes a controlled zoo of six ViT variants (~86M parameters each) fine-tuned under an identical, standardised protocol:
-- Standard ViT-B/16 (augreg)
-- DeiT-B/16 (distilled)
-- Swin-B (shifted-window)
-- BEiT-B/16 (MIM)
-- DINO-ViT-B/8 & DINOv2-ViT-B/14 (self-supervised)
+Six ViT variants (~86M parameters each), fine-tuned under an identical standardised protocol:
+
+| Model | Pre-training | Patch Size | Architecture |
+|-------|-------------|------------|--------------|
+| ViT-B/16 | Supervised (augreg) | 16×16 | Standard CLS |
+| DeiT-B/16 | Distilled | 16×16 | CLS + distillation |
+| Swin-B | Shifted-window | 7×7 | Hierarchical |
+| BEiT-B/16 | Masked Image Modelling | 16×16 | Standard CLS |
+| DINO-ViT-B/8 | Self-supervised | 8×8 | Standard CLS |
+| DINOv2-ViT-B/14 | Self-supervised v2 | 14×14 | Standard CLS |
+
+### Explainers
+
+| # | Method | Class | Swin-B |
+|---|--------|-------|--------|
+| E1 | Raw CLS Attention | `RawAttentionExplainer` | ✗ |
+| E2 | Attention Rollout | `AttentionRolloutExplainer` | ✗ |
+| E3 | GradCAM | `GradCAMExplainer` | ✓ |
+| E4 | Chefer LRP | `CheferLRPExplainer` | ✗ |
+| E5 | RISE | `RISEExplainer` | ✓ |
+| E6 | LIME | `LIMEExplainer` | ✓ |
+| E7 | DIME | `DIMEExplainer` | — *(placeholder)* |
 
 ---
 
-## 🛠️ Quickstart
+## Quickstart
 
-We use [`uv`](https://docs.astral.sh/uv/) for fast and deterministic Python environment management. 
-
-### 1. Setup
+### Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
 cd vit-explainability-benchmark
 
-# Install uv (fast, deterministic package manager)
-pip install uv --user
+# Install dependencies via pip
+pip install -r requirements.txt
 
-# Install all dependencies from the lock file (fully reproducible)
+# Or use uv (recommended for fast, deterministic, reproducible environment management)
+pip install uv --user
 uv sync
 ```
 
-### 2. Run the Benchmark Test Suite
+### Run Tests
 
-The metric suite is heavily tested (200+ unit tests). Run them to verify your environment. Some tests require PyTorch; if it is not installed in the environment, those tests will be gracefully skipped.
+The metric suite is heavily tested (200+ unit tests):
 
 ```bash
-# Run all metrics and explainer tests
+pytest tests/ -v
+# Or with uv:
 uv run pytest tests/ -v
 ```
 
-### 3. Usage Example: Unified Evaluation Loop
+### Run the Phase 3 Benchmark
 
-The `BenchmarkRunner` provides a single loop to evaluate an explainer against a dataset.
+```bash
+# Full evaluation (6 models × 6 explainers × 4 datasets)
+python run_phase3.py --data-root /path/to/datasets
+
+# Dry run (1 batch per combination, for validation)
+python run_phase3.py --data-root /path/to/datasets --dry-run
+
+# Subset: specific models and explainers
+python run_phase3.py --data-root /path/to/datasets \
+    --models vit_b16 deit_b16 \
+    --explainers gradcam rollout \
+    --datasets imagenet_s50 cub200
+```
+
+The benchmark automatically checkpoints each `(dataset, model, explainer)` combination as a `.pkl` file, so interrupted runs can be resumed seamlessly.
+
+### Usage Example: Single Evaluation Loop
 
 ```python
 from metrics.runner import BenchmarkRunner
 from metrics.localization import LocalizationMetrics
 from metrics.robustness import RobustnessMetrics, randomise_model_weights
 
-# Initialize the runner with your desired metrics
 runner = BenchmarkRunner(
     metrics=LocalizationMetrics(thresholds=[0.25, 0.50, 0.75]),
     explainer=my_custom_explainer_function,
@@ -84,11 +112,9 @@ runner = BenchmarkRunner(
     randomised_model=randomise_model_weights(model, seed=42)
 )
 
-# Run over a standard PyTorch DataLoader yielding (images, masks, labels)
 results = runner.evaluate(model, val_loader, dataset_name="cub200")
-
 print(f"Mean IoU: {results['macro']['miou']:.4f}")
-print(f"Max Sensitivity (Robustness): {results['macro']['max_sensitivity']:.4f}")
+print(f"Max Sensitivity: {results['macro']['max_sensitivity']:.4f}")
 ```
 
 ---
@@ -101,7 +127,7 @@ The benchmark is designed to be run in three progressive stages.
 | Stage | Images | RISE masks | Models | Runtime (A100) | Command |
 |-------|--------|-----------|--------|----------------|---------|
 | **1. Pilot** | 50 | 100 | 1 | ~10 min | `bash run_pilot.sh` |
-| **2. Subsample** | 500 | 500 | 6 | ~4–6 hours | `bash run_benchmark.sh --max-images 500` |
+| **2. Subsample** | 500 | 500 | 6 | ~4–6 hours | `uv run python run_phase3.py --data-root /data --max-samples 500` |
 | **3. Full** | 5000+ | 4000 | 6 | ~3–5 days | `bash run_benchmark.sh` |
 
 ### Stage 1 — Pilot Run (Start Here)
@@ -132,10 +158,11 @@ If the pilot completes without errors, you're ready for the full run.
 500 images per dataset gives statistically meaningful results in a manageable time:
 
 ```bash
-# Uses max-batches to limit dataset size
-uv run python -m metrics.runner \
+# Uses max-samples and max-batches to limit dataset size
+uv run python run_phase3.py \
+    --data-root $DATA_ROOT \
     --checkpoint-dir results/subsample \
-    --max-batches 63 \       # 63 batches × 8 images ≈ 500 images
+    --max-samples 500 \
     --seed 42
 ```
 
@@ -149,60 +176,98 @@ bash run_benchmark.sh
 
 ---
 
-## 📂 Repository Architecture
+## 📂 Repository Structure
 
 ```text
 vit-explainability-benchmark/
-├── BENCHMARK.md                # The core reference document
-├── model_zoo/                  # Standardised ViT wrappers
-│   ├── __init__.py             # load_model() dispatcher
-│   ├── vit_b16.py              # Model 1 — ViT-B/16
-│   ├── deit_b16.py             # Model 2 — DeiT-B/16
-│   ├── swin_b.py               # Model 3 — Swin-B
-│   ├── beit_b16.py             # Model 4 — BEiT-B/16
-│   ├── dino_vitb8.py           # Model 5 — DINO-ViT-B/8
-│   └── dinov2_vitb14.py        # Model 6 — DINOv2-ViT-B/14
-├── training/                   # Shared fine-tuning protocol (AdamW + Cosine + Mixup)
-│   ├── transforms.py           # RandAugment + random erasing
-│   ├── mixup.py                # Batch Mixup α=0.8
-│   ├── optimizer.py            # AdamW + warmup + cosine
-│   ├── loss.py                 # SoftTargetCE / BCE
-│   └── trainer.py              # Full fine-tune loop
+│
+├── README.md                   # This file
+├── BENCHMARK.md                # Authoritative technical reference (metrics, proofs, protocols)
+├── requirements.txt            # Python dependencies (pip install -r requirements.txt)
+├── pyproject.toml              # uv/pip project configuration
+├── Dockerfile                  # Reproducible container build
+├── run_phase3.py               # ★ Main Phase 3 benchmark runner script
+├── run_benchmark.sh            # End-to-end pipeline (bash)
+├── model_hashes.txt            # SHA-256 hashes of all pre-trained checkpoints
+│
+├── model_zoo/                  # 6 standardised ViT model wrappers
+│   ├── __init__.py             #   load_model() dispatcher
+│   ├── vit_b16.py              #   ViT-B/16 (timm augreg)
+│   ├── deit_b16.py             #   DeiT-B/16 (distilled)
+│   ├── swin_b.py               #   Swin-B (shifted-window)
+│   ├── beit_b16.py             #   BEiT-B/16 (MIM)
+│   ├── dino_vitb8.py           #   DINO-ViT-B/8
+│   └── dinov2_vitb14.py        #   DINOv2-ViT-B/14
+│
 ├── explainers/                 # 7 explanation method implementations
-│   ├── base.py                 # BaseExplainer ABC
-│   ├── raw_attention.py        # E1 — Raw CLS attention
-│   ├── rollout.py              # E2 — Attention Rollout
-│   ├── gradcam.py              # E3 — GradCAM
-│   ├── chefer_lrp.py           # E4 — Chefer et al. LRP
-│   ├── rise.py                 # E5 — RISE (4000 masks)
-│   ├── lime.py                 # E6 — LIME (patch-grid)
-│   └── dime.py                 # E7 — DIME (placeholder)
-├── metrics/                    # The evaluation suite
-│   ├── fidelity.py             # F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
-│   ├── localization.py         # L1–L4 (mIoU, PG, EGT, CalibGap)
-│   ├── robustness.py           # R1–R3 (MaxSens, ModelRand, LabelRand)
-│   ├── complexity.py           # C1–C3 (Gini, Entropy, EMR)
-│   ├── axiom_verifier.py       # Empirical axiom testing (A1–A4)
-│   ├── normalize.py            # Attribution normalisation pipeline
-│   ├── sanity.py               # Sanity checks S1–S3
-│   └── runner.py               # BenchmarkRunner + Phase3Runner
+│   ├── base.py                 #   BaseExplainer ABC
+│   ├── raw_attention.py        #   E1 — Raw CLS attention
+│   ├── rollout.py              #   E2 — Attention Rollout
+│   ├── gradcam.py              #   E3 — GradCAM
+│   ├── chefer_lrp.py           #   E4 — Chefer et al. LRP
+│   ├── rise.py                 #   E5 — RISE (4000 masks)
+│   ├── lime.py                 #   E6 — LIME (patch-grid)
+│   └── dime.py                 #   E7 — DIME (placeholder)
+│
+├── metrics/                    # Evaluation suite
+│   ├── fidelity.py             #   F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
+│   ├── localization.py         #   L1–L4 (mIoU, PG, EGT, CalibGap)
+│   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, LabelRand)
+│   ├── complexity.py           #   C1–C3 (Gini, Entropy, EMR)
+│   ├── axiom_verifier.py       #   Axiomatic analysis (A1–A4) + Theorems T1–T6
+│   ├── normalize.py            #   Attribution normalisation pipeline
+│   ├── sanity.py               #   Sanity checks S1–S3
+│   ├── suite.py                #   MetricSuite unified class
+│   ├── causal_fidelity.py      #   Causal masking metric
+│   ├── adversarial_robustness.py #  PGD adversarial robustness
+│   ├── explainer_interaction.py #  Explainer Interaction Graph (EIG)
+│   └── runner.py               #   BenchmarkRunner + Phase3Runner
+│
+├── training/                   # Standardised fine-tuning protocol
+│   ├── transforms.py           #   RandAugment + random erasing
+│   ├── mixup.py                #   Batch Mixup (α=0.8)
+│   ├── optimizer.py            #   AdamW + warmup + cosine decay
+│   ├── loss.py                 #   SoftTargetCE / BCE
+│   └── trainer.py              #   Fine-tune loop with AMP
+│
+├── configs/                    # Per-dataset YAML configurations
+│   ├── cub200.yaml             #   CUB-200-2011 (200 classes)
+│   ├── pascal_voc.yaml         #   PASCAL VOC 2012 (20 classes)
+│   ├── imagenet.yaml           #   ImageNet-1K (linear probe)
+│   ├── imagenet_s50.yaml       #   ImageNet-S-50 (50-class subset)
+│   └── nih_chestxray.yaml      #   NIH ChestX-ray14 (14 classes)
+│
+├── scripts/                    # Utilities, data prep, Phase 4 analytics
+│   ├── verify_datasets.py      #   Dataset integrity verification
+│   ├── pilot_finetune.py       #   5-epoch sanity check
+│   ├── record_model_hashes.py  #   SHA-256 hash logging
+│   ├── create_cub_val_split.py #   Stratified CUB val split
+│   ├── phase4_correlation_analysis.py  # Task 4.1 — Spearman + PCA
+│   ├── phase4_interaction_analysis.py  # Task 4.2 — Kendall τ
+│   ├── phase4_ablations.py     #   Task 4.3 — Ablations + Cohen's d
+│   ├── plot_interaction_graph.py #  EIG visualisation
+│   ├── plot_community_radar.py #   Community radar chart
+│   └── plot_fidelity_curves.py #   Fidelity curve plots
+│
 ├── tests/                      # 200+ unit tests
-├── configs/                    # YAML configs for dataset-specific runs
-├── scripts/                    # Reproducibility, data prep, Phase 4 analytics
-└── pyproject.toml              # uv dependency management
+├── utils/                      # Shared utilities (PGD attack)
+├── paper/                      # LaTeX manuscript drafts
+├── results/                    # Output directory for checkpoints
+│
+└── docs/                       # Project documentation
+    ├── implementation_guide.md #   Detailed 5-phase implementation guide
+    ├── phase4_instructions.md  #   Phase 4 operational instructions
+    ├── project_status_checklist.md # Full task audit
+    ├── compute_budget_breakdown.md # GPU hour estimates
+    ├── anaconda_compatibility_and_runtime_analysis.md
+    └── literature_review.md    #   Literature review & gap analysis
 ```
-
-## Reproducibility Guarantees
-- SHA-256 hashes of all pre-trained models are locked in `model_hashes.txt`.
-- Data splits are deterministic.
-- All pseudo-random sampling in metrics (e.g., L2 tie-breaking, R1 noise generation) accepts explicit integer seeds.
-- The `Phase3Runner` checkpoints results per `(dataset, model, explainer)` combination for crash recovery.
 
 ---
 
-## 🖥️ Running on an A100 Lab (HPC / SLURM Cluster)
+## 🖥️ Running on an NVIDIA A100 HPC / SLURM Cluster
 
-This section covers running the benchmark on an **NVIDIA A100 GPU node** in an HPC lab environment.
+This section covers running the benchmark on an **NVIDIA A100 GPU node** in a high-performance computing (HPC) cluster environment.
 
 ### Prerequisites
 
@@ -352,64 +417,75 @@ singularity build vit_bench.sif docker://pytorch/pytorch:2.2.0-cuda12.1-cudnn8-r
 
 ---
 
-## 🔧 Extending the Benchmark
+## Reproducibility
 
-### Adding a New Explanation Method
+- **Deterministic seeds:** All pseudo-random sampling accepts explicit integer seeds, injected before every combination.
+- **Model hashes:** SHA-256 of all pre-trained checkpoints locked in `model_hashes.txt`.
+- **Checkpointing:** `Phase3Runner` saves per-combination `.pkl` files with atomic writes for crash recovery.
+- **Data splits:** Deterministic and documented in `configs/*.yaml`.
+- **Run metadata:** Each benchmark run saves a `run_metadata.json` with environment details.
 
-1. Create a new file in `explainers/`, e.g. `explainers/my_method.py`.
-2. Subclass `BaseExplainer` from `explainers/base.py`.
-3. Implement the `explain(x, target_class, **kwargs) → torch.Tensor` method:
-   - Input: `x` is a `(3, H, W)` float32 tensor in `[0, 1]`.
-   - Output: a `(H // patch_size, W // patch_size)` float32 tensor (un-normalised).
-4. Optionally override `explain_batch()` for amortised computation.
-5. Register the explainer in `explainers/__init__.py`.
-6. Add unit tests in `tests/` following the pattern in `test_explainers.py` (shape, finite, batch, variance checks).
+---
+
+## Extending the Benchmark
+
+### Adding a New Explainer
+
+1. Create `explainers/my_method.py` and subclass `BaseExplainer`.
+2. Implement `explain(x, target_class) → (H_patches, W_patches)` tensor.
+3. Optionally override `explain_batch()` for amortised computation.
+4. Register in `explainers/__init__.py`.
+5. Add unit tests following `tests/test_explainers.py` patterns.
 
 ```python
-# explainers/my_method.py
 from explainers.base import BaseExplainer
 import torch
 
 class MyMethodExplainer(BaseExplainer):
     def explain(self, x: torch.Tensor, target_class: int, **kwargs) -> torch.Tensor:
         # Your attribution logic here
-        # Return shape: (H_patches, W_patches)
+        # Return shape: (H // patch_size, W // patch_size)
         ...
 ```
 
 ### Adding a New Metric
 
 1. Create or extend a file in `metrics/`.
-2. Follow the pattern of existing metric classes (e.g., `LocalizationMetrics`, `ComplexityMetrics`).
-3. Ensure the metric accepts normalised attribution maps (use `metrics/normalize.py` upstream).
-4. Add the metric to the `BenchmarkRunner` or `Phase3Runner` integration in `metrics/runner.py`.
-5. Write unit tests with known-good inputs (perfect attribution → expected score) and known-bad inputs (random/misaligned → chance level).
-6. Document the formal definition, range, and direction (higher-is-better vs lower-is-better) in `BENCHMARK.md`.
+2. Follow patterns in `LocalizationMetrics`, `ComplexityMetrics`.
+3. Ensure the metric accepts normalised attribution maps (use `metrics/normalize.py`).
+4. Integrate into `BenchmarkRunner` or `Phase3Runner` in `metrics/runner.py`.
+5. Write unit tests with known-good and known-bad inputs.
+6. Document the formal definition, range, and direction in `BENCHMARK.md`.
 
 ### Reproducing Figures
 
 ```bash
-# Axiom satisfaction heatmap (Figure F1)
-uv run python -c "from metrics.axiom_verifier import generate_axiom_satisfaction_heatmap; generate_axiom_satisfaction_heatmap('figures/axiom_satisfaction.pdf')"
+# Axiom satisfaction heatmap
+python -c "from metrics.axiom_verifier import generate_axiom_satisfaction_heatmap; generate_axiom_satisfaction_heatmap('figures/axiom_satisfaction.pdf')"
 
 # Complexity distributions
-uv run python -c "from metrics.complexity import run_sanity_check; run_sanity_check()"
+python -c "from metrics.complexity import run_sanity_check; run_sanity_check()"
 
-# Phase 4 analytics (requires Phase 3 results CSV)
-uv run python scripts/phase4_correlation_analysis.py --results_csv results/aggregated_results.csv --output_dir results/phase4
-uv run python scripts/phase4_interaction_analysis.py --results_csv results/aggregated_results.csv --output_dir results/phase4
-uv run python scripts/phase4_ablations.py --output_dir results/phase4
+# Phase 4 analytics (requires Phase 3 results)
+python scripts/phase4_correlation_analysis.py \
+    --results_csv results/phase3/aggregated_results.csv \
+    --output_dir results/phase4
 ```
 
 ---
 
-## 📊 Phase 4: Analysis & Findings (Experimental)
-*(Note: These are placeholders for Phase 4 empirical results.)*
+## Phase 4: Analysis & Findings
 
-- **Inter-Metric Correlation:** [PLACEHOLDER: Summary of metric orthogonality and heatmap results]
-- **Task-Metric Concordance:** [PLACEHOLDER: Discordance insights and Kendall tau findings]
-- **Ablation Studies:** 
-  - Token Resolution: `[PLACEHOLDER: Cohen's d effect size]`
-  - Layer Depth: `[PLACEHOLDER: Cohen's d effect size]`
-  - Masking Strategy: `[PLACEHOLDER: Cohen's d effect size]`
-  - Pre-training Objective: `[PLACEHOLDER: Cohen's d effect size]`
+> *Pending Phase 3 benchmark results. See `docs/phase4_instructions.md` for the execution workflow.*
+
+| Analysis | Script | Output |
+|----------|--------|--------|
+| Inter-Metric Correlation | `scripts/phase4_correlation_analysis.py` | Spearman heatmap + PCA |
+| Task-Metric Concordance | `scripts/phase4_interaction_analysis.py` | Kendall τ + decision tree |
+| Ablation Studies (A1–A4) | `scripts/phase4_ablations.py` | Cohen's d effect sizes |
+
+---
+
+## License
+
+MIT

@@ -1477,8 +1477,13 @@ vit-explainability-benchmark/
 ├── pyproject.toml                      # uv project file (Python 3.13)
 ├── model_hashes.txt                    # SHA-256 of all pre-trained checkpoints
 ├── requirements.txt                    # Pinned runtime dependency versions
-├── implementation_guide.md             # Step-by-step operational guide
-├── phase4-instructions.md              # Phase 4 execution instructions
+├── docs/                               # Project documentation
+│   ├── implementation_guide.md         # Step-by-step operational guide
+│   ├── phase4_instructions.md          # Phase 4 analytical instructions
+│   ├── project_status_checklist.md     # Full task checklist/audit
+│   ├── compute_budget_breakdown.md     # GPU budget estimates
+│   ├── anaconda_compatibility_and_runtime_analysis.md # Anaconda/runtime analysis
+│   └── literature_review.md            # Lit review & gap analysis
 └── .gitignore
 ```
 
