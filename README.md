@@ -48,11 +48,14 @@ We use [`uv`](https://docs.astral.sh/uv/) for fast and deterministic Python envi
 
 ```bash
 # Clone the repository
-git clone https://github.com/[YOUR-ORG]/vit-explainability-benchmark.git
+git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
 cd vit-explainability-benchmark
 
-# The repository uses uv for dependency management (Python 3.13)
-# Dependencies are specified in pyproject.toml
+# Install uv (fast, deterministic package manager)
+pip install uv --user
+
+# Install all dependencies from the lock file (fully reproducible)
+uv sync
 ```
 
 ### 2. Run the Benchmark Test Suite
@@ -86,6 +89,62 @@ results = runner.evaluate(model, val_loader, dataset_name="cub200")
 
 print(f"Mean IoU: {results['macro']['miou']:.4f}")
 print(f"Max Sensitivity (Robustness): {results['macro']['max_sensitivity']:.4f}")
+```
+
+---
+
+## 🎯 Recommended Running Strategy
+
+The benchmark is designed to be run in three progressive stages.  
+**Always start with the Pilot to verify everything works before committing GPU hours.**
+
+| Stage | Images | RISE masks | Models | Runtime (A100) | Command |
+|-------|--------|-----------|--------|----------------|---------|
+| **1. Pilot** | 50 | 100 | 1 | ~10 min | `bash run_pilot.sh` |
+| **2. Subsample** | 500 | 500 | 6 | ~4–6 hours | `bash run_benchmark.sh --max-images 500` |
+| **3. Full** | 5000+ | 4000 | 6 | ~3–5 days | `bash run_benchmark.sh` |
+
+### Stage 1 — Pilot Run (Start Here)
+
+Verifies the complete pipeline end-to-end in ~10 minutes:
+
+```bash
+# Set your dataset path first
+export DATA_ROOT="/data"    # adjust to actual path
+
+# Run the pilot
+bash run_pilot.sh
+```
+
+What the pilot tests:
+- ✅ All unit tests pass
+- ✅ GPU is detected and working  
+- ✅ Dataset loads correctly
+- ✅ All 6 explainers run without errors  
+- ✅ All metrics compute correctly
+- ✅ Checkpointing works (safe to interrupt/resume)
+- ✅ Phase 4 analytics scripts execute
+
+If the pilot completes without errors, you're ready for the full run.
+
+### Stage 2 — Subsample Run (Recommended for Validation)
+
+500 images per dataset gives statistically meaningful results in a manageable time:
+
+```bash
+# Uses max-batches to limit dataset size
+uv run python -m metrics.runner \
+    --checkpoint-dir results/subsample \
+    --max-batches 63 \       # 63 batches × 8 images ≈ 500 images
+    --seed 42
+```
+
+> RISE with 500 masks on 500 images is the approach recommended in the RISE paper for GPU-constrained evaluation. Results are reported with a table footnote noting the subsample.
+
+### Stage 3 — Full Run (Publication Results)
+
+```bash
+bash run_benchmark.sh
 ```
 
 ---
@@ -138,6 +197,158 @@ vit-explainability-benchmark/
 - Data splits are deterministic.
 - All pseudo-random sampling in metrics (e.g., L2 tie-breaking, R1 noise generation) accepts explicit integer seeds.
 - The `Phase3Runner` checkpoints results per `(dataset, model, explainer)` combination for crash recovery.
+
+---
+
+## 🖥️ Running on an A100 Lab (HPC / SLURM Cluster)
+
+This section covers running the benchmark on an **NVIDIA A100 GPU node** in an HPC lab environment.
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| CUDA | 12.1 (matches Dockerfile) |
+| Python | 3.13+ |
+| PyTorch | 2.2.0 |
+| `uv` | Latest |
+
+### 1. Log In & Verify the GPU
+
+```bash
+nvidia-smi
+# Should show: NVIDIA A100 with CUDA 12.x
+```
+
+### 2. Load Environment Modules
+
+Most HPC clusters use `module` to manage CUDA/Python versions:
+
+```bash
+module purge
+module load cuda/12.1
+module load python/3.13
+module list            # verify what is loaded
+```
+
+> ⚠️ Module names vary by cluster — run `module avail cuda` and `module avail python` to find the correct names.
+
+### 3. Clone & Install
+
+```bash
+# Use scratch/work storage (not home — usually quota-limited)
+cd /scratch/$USER
+
+git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
+cd vit-explainability-benchmark
+
+pip install uv --user
+uv sync
+```
+
+Verify PyTorch sees the A100:
+
+```bash
+uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0))"
+# Expected: True
+#           NVIDIA A100 ...
+```
+
+### 4. Set the Dataset Path
+
+Point `DATA_ROOT` to where the datasets live on the cluster's shared storage:
+
+```bash
+export DATA_ROOT="/data"    # adjust to the correct path
+```
+
+The benchmark expects the following structure under `$DATA_ROOT`:
+
+| Dataset | Expected Path |
+|---------|---------------|
+| CUB-200-2011 | `$DATA_ROOT/cub200/` |
+| PASCAL VOC | `$DATA_ROOT/voc/` |
+| ImageNet-S50 | `$DATA_ROOT/imagenet_s50/` |
+| NIH ChestX-ray | `$DATA_ROOT/nih_chestxray/` |
+
+### 5. Run the Full Pipeline
+
+```bash
+bash run_benchmark.sh
+```
+
+The script runs 4 automated stages:
+1. ✅ Environment integrity check (all unit tests)
+2. 📋 Dataset verification (all 4 datasets)
+3. 🔬 Phase 3 metric evaluation — checkpointed per `(dataset, model, explainer)`, safe to interrupt and resume
+4. 📊 Phase 4 analytics → `results/phase4/`
+
+### 6. SLURM Job Submission
+
+If the cluster uses SLURM, use the following job script:
+
+```bash
+cat > run_vit_benchmark.slurm << 'EOF'
+#!/bin/bash
+#SBATCH --job-name=vit-bench
+#SBATCH --partition=gpu          # adjust: check available partitions with `sinfo`
+#SBATCH --gres=gpu:a100:1        # 1 × A100
+#SBATCH --cpus-per-task=8
+#SBATCH --mem=64G
+#SBATCH --time=12:00:00
+#SBATCH --output=logs/bench_%j.out
+#SBATCH --error=logs/bench_%j.err
+
+module purge
+module load cuda/12.1
+module load python/3.13
+
+cd /scratch/$USER/vit-explainability-benchmark
+export DATA_ROOT="/data"
+
+bash run_benchmark.sh
+EOF
+
+mkdir -p logs
+sbatch run_vit_benchmark.slurm
+
+# Monitor job
+squeue -u $USER
+tail -f logs/bench_<JOB_ID>.out
+```
+
+### 7. A100-Specific Optimizations
+
+The A100 supports **bfloat16** and **TF32** natively for significantly faster training and inference. Add to `main.py`:
+
+```python
+import torch
+torch.backends.cuda.matmul.allow_tf32 = True
+torch.backends.cudnn.allow_tf32 = True
+```
+
+### Expected Runtime on A100
+
+| Stage | Estimated Time |
+|-------|----------------|
+| Test suite | ~2–5 min |
+| Full Phase 3 benchmark | ~4–8 hours |
+| Phase 4 analytics | ~15–30 min |
+
+> The `Phase3Runner` checkpoints results per `(dataset, model, explainer)` — it can be safely interrupted and resumed at any point.
+
+### Docker / Singularity (Alternative)
+
+The repo includes a `Dockerfile` pre-configured for **CUDA 12.1 + PyTorch 2.2**:
+
+```bash
+# Docker
+docker build -t vit-bench .
+docker run --gpus all -v /data:/data -e DATA_ROOT=/data vit-bench bash run_benchmark.sh
+
+# Singularity (common in HPC environments)
+singularity build vit_bench.sif docker://pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+```
 
 ---
 
