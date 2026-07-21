@@ -1,33 +1,32 @@
-# ViT Explainability Benchmark — Full Project Dependencies
-# Pin versions for reproducibility (IEEE TPAMI submission)
+# ViT Explainability Benchmark — Complete Project Dependencies
+# Python >= 3.13 required
 
-# ── Deep Learning Core ──────────────────────────────────
+# ── Deep Learning Core ──────────────────────────────────────
 torch>=2.2.0
 torchvision>=0.17.0
+
+# ── ViT Model Zoo ───────────────────────────────────────────
 timm>=0.9.16
+
+# ── HuggingFace Ecosystem ───────────────────────────────────
 transformers>=4.40.0
 huggingface_hub>=0.22.0
 datasets>=2.19.0
 
-# ── Scientific Stack ────────────────────────────────────
-numpy>=1.26.0
+# ── Scientific Stack ────────────────────────────────────────
+numpy>=2.0.0
 scipy>=1.13.0
-scikit-learn>=1.4.0
-pandas>=2.2.0
 
-# ── Visualisation ───────────────────────────────────────
-matplotlib>=3.8.0
+# ── Data Analysis & Visualisation ───────────────────────────
+pandas>=2.2.0
+matplotlib>=3.9.0
 seaborn>=0.13.0
+
+# ── Progress & Logging ──────────────────────────────────────
+tqdm>=4.66.0
+
+# ── Image I/O ───────────────────────────────────────────────
 Pillow>=10.3.0
 
-# ── Graph Analysis (Phase 4 — Explainer Interaction) ───
-networkx>=3.2
-python-louvain>=0.16          # provides `import community` for Louvain community detection
-
-# ── Experiment Tracking & Utilities ─────────────────────
-tqdm>=4.66.0
-pyyaml>=6.0.1
-omegaconf>=2.3.0
-
-# ── Testing ─────────────────────────────────────────────
+# ── Testing ─────────────────────────────────────────────────
 pytest>=8.0.0
