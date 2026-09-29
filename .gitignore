@@ -13,6 +13,10 @@ build/
 .pytest_cache/
 .mypy_cache/
 
+# Local API credentials — never commit
+.env
+.env.*
+
 # Jupyter
 .ipynb_checkpoints/
 *.ipynb
