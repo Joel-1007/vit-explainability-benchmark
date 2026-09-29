@@ -86,6 +86,8 @@ NIH is **not interchangeable** with the guide's five CheXpert findings. Its labe
 
 ### Server-side download helper
 
+For a step-by-step operator guide, all options, output paths, resume behavior, and troubleshooting, see [Using the dataset download script](dataset_download_guide.md).
+
 From a Linux server checkout of this repository, the operator can first probe the links, then download the available source archives to a chosen location:
 
 ```bash

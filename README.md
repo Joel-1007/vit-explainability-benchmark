@@ -321,7 +321,7 @@ uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cu
 
 ### 4. Set the Dataset Path
 
-See [Dataset sources and acquisition notes](docs/dataset_sources.md) for the complete publisher links, required annotation companions, and the distinction between the guide's CheXpert plan and this repository's current NIH configuration.
+See [Dataset sources and acquisition notes](docs/dataset_sources.md) for the complete publisher links, required annotation companions, and the distinction between the guide's CheXpert plan and this repository's current NIH configuration. For commands, options, prerequisites, and download behavior, see [Using the dataset download script](docs/dataset_download_guide.md).
 
 Point `DATA_ROOT` to where the datasets live on the cluster's shared storage:
 
