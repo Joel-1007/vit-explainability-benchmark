@@ -1,10 +1,10 @@
-# Syntax=docker/dockerfile:1
+# syntax=docker/dockerfile:1
 FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
 
 # Set working directory
 WORKDIR /app
 
-# Prevent python from buffering stdout/stderr
+# Prevent Python from buffering stdout/stderr
 ENV PYTHONUNBUFFERED=1
 ENV PYTHONDONTWRITEBYTECODE=1
 
@@ -18,21 +18,19 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv for deterministic dependency management
 RUN pip install uv
 
-# Create virtual environment and set it as default python
+# Create virtual environment and activate it
 ENV VIRTUAL_ENV=/opt/venv
 RUN uv venv $VIRTUAL_ENV
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Install pure dependencies first for optimal caching
-COPY requirements.txt pyproject.toml README.md ./
+# Copy dependency files first (layer caching)
+COPY requirements.txt pyproject.toml uv.lock ./
+
+# Install all Python dependencies
 RUN uv pip install -r requirements.txt
 
-# Copy the rest of the application
+# Copy the rest of the project
 COPY . .
 
-# Run tests to ensure a valid environment
-RUN uv pip install pytest numpy && pytest tests/
-
-# Set the default command to the CLI runner
-ENTRYPOINT ["python", "-m", "metrics.runner"]
-CMD ["--help"]
+# Default command: run the pilot (smoke test)
+CMD ["bash", "run_pilot.sh"]
