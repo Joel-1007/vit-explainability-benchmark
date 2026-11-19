@@ -11,7 +11,7 @@ from .complexity import gini_coefficient, attribution_entropy, effective_mass_ra
 class MetricSuite:
     """
     Unified access point for all 13 Phase 2 metrics across 4 families:
-    Fidelity (F1-F4), Localization (L1-L4), Robustness (R1-R3), Complexity (C1-C3).
+    Fidelity (F1-F3), Localization (L1-L4), Robustness (R1-R3), Complexity (C1-C3).
     """
     def __init__(self, **kwargs):
         # Configure Fidelity, Localization, Robustness kwargs dynamically

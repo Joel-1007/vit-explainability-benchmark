@@ -9,7 +9,7 @@
 
 ## Overview
 
-Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **7 explanation methods**, and **4 datasets**, measuring **13 metrics** spanning Fidelity, Localization, Robustness, and Complexity.
+Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **6 explanation methods** (plus a DIME placeholder, E7, not yet evaluated), and **4 datasets**, measuring **13 metrics** (F1–F3, L1–L4, R1–R3, C1–C3) spanning Fidelity, Localization, Robustness, and Complexity.
 
 > 📖 **Full technical reference:** [BENCHMARK.md](BENCHMARK.md) — contains all metric definitions, mathematical proofs, experimental protocols, and API specifications.
 
@@ -62,13 +62,15 @@ Six ViT variants (~86M parameters each), fine-tuned under an identical standardi
 git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
 cd vit-explainability-benchmark
 
-# Install dependencies via pip
-pip install -r requirements.txt
-
-# Or use uv (recommended for fast, deterministic, reproducible environment management)
+# Recommended: uv (creates a Python 3.13 venv from uv.lock)
 pip install uv --user
 uv sync
+
+# Or with pip, in a Python >= 3.13 environment
+pip install -e .        # installs the packages and the `vit-bench` command
 ```
+
+`vit-bench` is the same as `python run_phase3.py`, e.g. `vit-bench --data-root /path/to/datasets --dry-run`.
 
 ### Run Tests
 
@@ -199,7 +201,7 @@ vit-explainability-benchmark/
 │   ├── dino_vitb8.py           #   DINO-ViT-B/8
 │   └── dinov2_vitb14.py        #   DINOv2-ViT-B/14
 │
-├── explainers/                 # 7 explanation method implementations
+├── explainers/                 # 6 explanation methods + DIME placeholder (E7)
 │   ├── base.py                 #   BaseExplainer ABC
 │   ├── raw_attention.py        #   E1 — Raw CLS attention
 │   ├── rollout.py              #   E2 — Attention Rollout
@@ -386,7 +388,7 @@ tail -f logs/bench_<JOB_ID>.out
 
 ### 7. A100-Specific Optimizations
 
-The A100 supports **bfloat16** and **TF32** natively for significantly faster training and inference. Add to `main.py`:
+The A100 supports **bfloat16** and **TF32** natively for significantly faster training and inference. Add near the top of `run_phase3.py`'s `main()`:
 
 ```python
 import torch
@@ -406,7 +408,7 @@ torch.backends.cudnn.allow_tf32 = True
 
 ### Docker / Singularity (Alternative)
 
-The repo includes a `Dockerfile` pre-configured for **CUDA 12.1 + PyTorch 2.2**:
+The repo includes a `Dockerfile` (CUDA 12.1 base image, Python 3.13 venv managed by `uv`):
 
 ```bash
 # Docker
@@ -414,7 +416,7 @@ docker build -t vit-bench .
 docker run --gpus all -v /data:/data -e DATA_ROOT=/data vit-bench bash run_benchmark.sh
 
 # Singularity (common in HPC environments)
-singularity build vit_bench.sif docker://pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+singularity build vit_bench.sif docker-daemon://vit-bench:latest
 ```
 
 ---

@@ -1,6 +1,6 @@
 """
 Phase 4, Task 4.3: Ablation Studies
-This script provides scaffolding for the 4 key ablations (A1-A4).
+Ablations A1-A4 are NOT implemented yet; each raises NotImplementedError.
 It includes the Cohen's d effect size calculation.
 """
 
@@ -33,45 +33,29 @@ def interpret_cohens_d(d: float) -> str:
     else:
         return "Large"
 
-def _run_mock_ablation(name, variant_a, variant_b, mean_a, mean_b, std_a, std_b, output_dir):
-    N = 200
-    group_a = np.random.normal(mean_a, std_a, N)
-    group_b = np.random.normal(mean_b, std_b, N)
-    d = compute_cohens_d(group_a, group_b)
-    
-    df = pd.DataFrame([{
-        "Ablation": name,
-        "Variant_A": variant_a,
-        "Variant_B": variant_b,
-        "Mean_A": mean_a,
-        "Mean_B": mean_b,
-        "Cohens_d": d,
-        "Effect_Size": interpret_cohens_d(d)
-    }])
-    out_file = os.path.join(output_dir, f"ablation_{name.split(':')[0].replace(' ', '')}.csv")
-    df.to_csv(out_file, index=False)
-    print(f"Saved: {out_file}")
-    return df
+def _not_implemented(name: str) -> pd.DataFrame:
+    # The previous version drew both groups from np.random.normal with
+    # hand-picked means. Removed so placeholder effect sizes cannot reach the paper.
+    raise NotImplementedError(
+        f"Ablation {name} is not implemented: it needs real per-sample scores "
+        "for both variants from Phase 3 runs. compute_cohens_d() is ready to use."
+    )
 
 def run_ablation_A1(output_dir: str) -> pd.DataFrame:
-    """Ablation A1: Token Resolution"""
-    print("Running Ablation A1: Token Resolution")
-    return _run_mock_ablation("A1", "Raw Patch", "CLS Token", 0.65, 0.40, 0.1, 0.15, output_dir)
+    """Ablation A1: Token Resolution (Raw Patch vs CLS Token)"""
+    return _not_implemented("A1")
 
 def run_ablation_A2(output_dir: str) -> pd.DataFrame:
-    """Ablation A2: Layer Depth"""
-    print("Running Ablation A2: Layer Depth")
-    return _run_mock_ablation("A2", "Rollout All", "Last Layer", 0.70, 0.68, 0.1, 0.12, output_dir)
+    """Ablation A2: Layer Depth (Rollout All vs Last Layer)"""
+    return _not_implemented("A2")
 
 def run_ablation_A3(output_dir: str) -> pd.DataFrame:
-    """Ablation A3: Masking Strategy"""
-    print("Running Ablation A3: Masking Strategy")
-    return _run_mock_ablation("A3", "Mean Mask", "Zero Mask", 0.85, 0.82, 0.05, 0.06, output_dir)
+    """Ablation A3: Masking Strategy (Mean Mask vs Zero Mask)"""
+    return _not_implemented("A3")
 
 def run_ablation_A4(output_dir: str) -> pd.DataFrame:
-    """Ablation A4: Pre-training Objective"""
-    print("Running Ablation A4: Pre-training Objective")
-    return _run_mock_ablation("A4", "DINO Self-distill", "Supervised", 0.78, 0.60, 0.15, 0.20, output_dir)
+    """Ablation A4: Pre-training Objective (DINO Self-distill vs Supervised)"""
+    return _not_implemented("A4")
 
 def main():
     parser = argparse.ArgumentParser(description="Run Task 4.3: Ablation Studies")
@@ -80,7 +64,6 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
     
-    print("This script is currently scaffolded. Update data ingestion logic within individual ablation functions.")
 
     dfs = []
     dfs.append(run_ablation_A1(args.output_dir))

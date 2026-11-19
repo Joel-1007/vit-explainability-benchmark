@@ -255,5 +255,5 @@ class CausalMaskingMetric:
                 conf = torch.softmax(model(cur.unsqueeze(0)), dim=-1)[0, target_class].item()
             results.append((frac, conf))
         fractions, confidences = zip(*results)
-        auc = float(np.trapz(confidences, fractions))
+        auc = float(np.trapezoid(confidences, fractions))
         return results, auc

@@ -23,8 +23,11 @@ def compute_rankings(results_df: pd.DataFrame) -> pd.DataFrame:
     for dataset in mean_scores["dataset"].unique():
         ds_data = mean_scores[mean_scores["dataset"] == dataset]
         for metric in metric_cols:
-            # Assuming higher is better for all metrics as a placeholder. 
-            # In a real implementation, you'd adjust sorting direction based on the metric.
+            # NOTE: ranks assume higher is better for every metric. For
+            # lower-is-better metrics (e.g. R1 MaxSens) the per-dataset ranks
+            # are inverted; Kendall tau between datasets is unaffected because
+            # the flip is the same on both sides, but explainer_rankings.csv
+            # is not. Add per-metric directions before reporting ranks.
             ds_data_sorted = ds_data.sort_values(by=metric, ascending=False).reset_index(drop=True)
             for idx, row in ds_data_sorted.iterrows():
                 rankings.append({
@@ -75,18 +78,13 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if not os.path.isfile(args.results_csv):
+        raise SystemExit(
+            f"ERROR: results CSV not found: {args.results_csv}\n"
+            "Phase 4 needs real Phase 3 results; no dummy data is generated."
+        )
     print(f"Loading results from {args.results_csv}...")
-    print("WARNING: Using dummy data. Implement actual data loading here.")
-    dummy_cols = ["F1", "F2", "L1", "L2", "explainer", "model", "dataset", "sample_id"]
-    N = 400
-    df = pd.DataFrame(np.random.rand(N, 4), columns=dummy_cols[:4])
-    explainers = ["GradCAM", "Rollout", "Chefer LRP", "Raw Attention"]
-    datasets = ["ImageNet-S-50", "CUB-200", "PASCAL VOC", "NIH ChestX-ray14"]
-    
-    df["explainer"] = np.random.choice(explainers, N)
-    df["model"] = "ViT-B"
-    df["dataset"] = np.random.choice(datasets, N)
-    df["sample_id"] = range(N)
+    df = pd.read_csv(args.results_csv)
 
     print("Computing rankings...")
     rankings_df = compute_rankings(df)

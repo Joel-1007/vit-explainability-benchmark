@@ -45,19 +45,16 @@ def plot_correlation_heatmap(corr_matrix: pd.DataFrame, output_path: str):
 
 def run_factor_analysis(results_df: pd.DataFrame, output_path: str):
     """
-    Stub for running factor analysis (PCA) to find the latent structure of explanation quality.
-    Generates dummy factor analysis output for scaffolding.
+    Factor analysis (PCA) of the latent structure of explanation quality.
+
+    Not implemented yet. This used to write hard-coded eigenvalues
+    (3.1 / 1.8 / 1.1); that was removed so placeholder numbers cannot reach
+    the paper.
     """
-    print(f"Generating dummy Factor Analysis variance breakdown to {output_path}.")
-    
-    latent_data = {
-        "Factor": ["Factor 1 (Fidelity/Robustness)", "Factor 2 (Localization)", "Factor 3 (Complexity)"],
-        "Eigenvalue": [3.1, 1.8, 1.1],
-        "Variance_Explained_Pct": [45.2, 26.5, 16.3],
-        "Cumulative_Variance_Pct": [45.2, 71.7, 88.0]
-    }
-    pd.DataFrame(latent_data).to_csv(output_path, index=False)
-    print(f"Factor analysis summary saved to {output_path}")
+    raise NotImplementedError(
+        "Factor analysis is not implemented. Implement run_factor_analysis() "
+        "in scripts/phase4_correlation_analysis.py before reporting it."
+    )
 
 def main():
     parser = argparse.ArgumentParser(description="Run Task 4.1: Inter-Metric Correlation Analysis")
@@ -67,34 +64,13 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if not os.path.isfile(args.results_csv):
+        raise SystemExit(
+            f"ERROR: results CSV not found: {args.results_csv}\n"
+            "Phase 4 needs real Phase 3 results; no dummy data is generated."
+        )
     print(f"Loading results from {args.results_csv}...")
-    # df = pd.read_csv(args.results_csv)
-    # Placeholder for actual data loading logic
-    
-    # Generate dummy data for illustration
-    print("WARNING: Using dummy data for scaffolding.")
-    dummy_cols = ["F1_Sufficiency", "F2_Comprehensiveness", "L1_mIoU", "L2_PG", "R1_MaxSens", "C1_Gini"]
-    
-    # Generate somewhat correlated dummy data
-    N = 300
-    base_signal = np.random.randn(N)
-    
-    df = pd.DataFrame()
-    df["F1_Sufficiency"] = base_signal + np.random.randn(N) * 0.5
-    df["F2_Comprehensiveness"] = base_signal + np.random.randn(N) * 0.6  # Correlated with F1
-    df["L1_mIoU"] = np.random.randn(N) * 1.0  # Orthogonal
-    df["L2_PG"] = df["L1_mIoU"] + np.random.randn(N) * 0.4  # Correlated with L1
-    df["R1_MaxSens"] = np.random.randn(N) * 1.5 # Orthogonal
-    df["C1_Gini"] = np.random.randn(N) * 0.8 # Orthogonal
-
-    # Normalize roughly to metric ranges 0-1
-    for col in dummy_cols:
-        df[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())
-
-    df["explainer"] = np.random.choice(["GradCAM", "Rollout", "Chefer LRP"], N)
-    df["model"] = "ViT-B"
-    df["dataset"] = np.random.choice(["ImageNet-S-50", "CUB-200", "PASCAL VOC", "NIH ChestX-ray14"], N)
-    df["sample_id"] = range(N)
+    df = pd.read_csv(args.results_csv)
 
     print("Computing correlations...")
     corr_matrix = compute_metric_correlations(df)

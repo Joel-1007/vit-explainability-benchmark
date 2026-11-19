@@ -719,9 +719,10 @@ def _cli_main(argv: Optional[List[str]] = None) -> None:
         f"  patch-size     : {args.patch_size}\n"
     )
     print(
-        "Note: call Phase3Runner(...).run() from Python to supply actual\n"
-        "models, explainers, and datasets. The CLI shows all options and\n"
-        "validates flags; dataset/model loading requires user-side Python.\n"
+        "Note: this CLI does NOT run an evaluation — it has no models,\n"
+        "explainers or datasets. To run the benchmark use:\n"
+        "    python run_phase3.py --data-root /path/to/datasets\n"
+        "Use this CLI only for --list-checkpoints.\n"
     )
 
 

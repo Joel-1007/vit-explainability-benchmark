@@ -1114,7 +1114,7 @@ results = runner.evaluate(model, val_loader, dataset_name="cub200")
 
 # Phase 3 — Baseline Evaluation Pipeline
 
-Phase 3 wraps the 13 metrics (F1–F4, L1–L4, R1–R4, C1–C3) and 7 explainers (E1–E7)
+Phase 3 wraps the 13 metrics (F1–F3, L1–L4, R1–R3, C1–C3) and 6 explainers (E1–E6; E7 DIME is a placeholder, see §3.1.2)
 into a **single reproducible evaluation command** with:
 
 - Fixed random seeds (per-run seed logged in metadata)
@@ -1129,7 +1129,7 @@ into a **single reproducible evaluation command** with:
 
 ## 3.1 Standardised Explainer Interface
 
-All 7 explainers share a common `BaseExplainer` contract defined in
+All explainers (E1–E6, plus the E7 placeholder) share a common `BaseExplainer` contract defined in
 `explainers/base.py`.
 
 ### 3.1.1 BaseExplainer Contract

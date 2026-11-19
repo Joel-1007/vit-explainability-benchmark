@@ -93,7 +93,11 @@ echo ""
 mkdir -p "$CHECKPOINT_DIR" "$OUTPUT_DIR"
 
 # Run Phase 3 with limited batches
-uv run python -m metrics.runner \
+uv run python run_phase3.py \
+    --data-root "$DATA_ROOT" \
+    --datasets cub200 \
+    --models vit_b16 \
+    --batch-size 8 \
     --checkpoint-dir "$CHECKPOINT_DIR" \
     --seed "$SEED" \
     --max-batches "$MAX_BATCHES" \
@@ -113,11 +117,11 @@ if [ -f "$RESULTS_CSV" ]; then
     uv run python scripts/phase4_interaction_analysis.py \
         --results_csv "$RESULTS_CSV" \
         --output_dir "$OUTPUT_DIR"
-    uv run python scripts/phase4_ablations.py \
-        --output_dir "$OUTPUT_DIR"
+    # phase4_ablations.py (A1–A4) is not implemented yet and is not run here.
 else
-    echo "  ⚠️  No aggregated_results.csv yet — Phase 4 analytics skipped."
-    echo "       (Run the full pipeline with run_benchmark.sh to generate it)"
+    echo "  ⚠️  No aggregated_results.csv — Phase 4 analytics skipped."
+    echo "       No script writes this file yet: Phase 3 checkpoints (.pkl) still"
+    echo "       need an aggregation step before Phase 4 can run."
 fi
 
 # --- Summary --------------------------------------------------

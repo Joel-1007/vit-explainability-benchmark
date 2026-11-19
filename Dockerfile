@@ -1,36 +1,31 @@
 # syntax=docker/dockerfile:1
-FROM pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+# Python 3.13 + uv. PyPI torch wheels for Linux bundle the CUDA runtime, so the
+# host only needs an NVIDIA driver (run with `docker run --gpus all ...`).
+FROM ghcr.io/astral-sh/uv:python3.13-bookworm-slim
 
-# Set working directory
 WORKDIR /app
 
-# Prevent Python from buffering stdout/stderr
-ENV PYTHONUNBUFFERED=1
-ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    # Make `uv sync` / `uv run` (used by run_pilot.sh, run_benchmark.sh) use this env
+    UV_PROJECT_ENVIRONMENT=/opt/venv
+ENV PATH="/opt/venv/bin:$PATH"
 
-# Install system dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     git \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv for deterministic dependency management
-RUN pip install uv
+# Install locked dependencies first (layer caching)
+COPY pyproject.toml uv.lock README.md ./
+RUN uv sync --frozen --no-install-project
 
-# Create virtual environment and activate it
-ENV VIRTUAL_ENV=/opt/venv
-RUN uv venv $VIRTUAL_ENV
-ENV PATH="$VIRTUAL_ENV/bin:$PATH"
-
-# Copy dependency files first (layer caching)
-COPY requirements.txt pyproject.toml uv.lock ./
-
-# Install all Python dependencies
-RUN uv pip install -r requirements.txt
-
-# Copy the rest of the project
+# Copy the project and install it into the same env
 COPY . .
+RUN uv sync --frozen
 
 # Default command: run the pilot (smoke test)
 CMD ["bash", "run_pilot.sh"]

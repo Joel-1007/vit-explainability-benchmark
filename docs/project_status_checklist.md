@@ -143,14 +143,14 @@ Legend:
 |---|------|--------|-------|
 | 5.4.1 | GitHub repository (anonymised) | ✅ | `scripts/anonymised_submission_plan.md` drafted |
 | 5.4.2 | `requirements.txt` | ✅ | Exists with pinned versions |
-| 5.4.3 | `Dockerfile` | ✅ | Created base `Dockerfile` |
-| 5.4.4 | `run_benchmark.sh` | ✅ | `run_benchmark.sh` E2E execution script created |
+| 5.4.3 | `Dockerfile` | ✅ | Python 3.13 + uv base, installs from `uv.lock` (2026-11-19); not yet build-tested |
+| 5.4.4 | `run_benchmark.sh` | ⚠️ | Step 3 now calls `run_phase3.py` (previously the no-op `metrics.runner` CLI). Step 4 Phase 4 scripts still analyse dummy data — see Phase 4 |
 | 5.4.5 | Fixed random seeds, verified identical | ⚠️ | Seeds fixed in runner code; dual-run verification not done (🔶 computational) |
 | 5.4.6 | README: how to install | ✅ | `README.md §Quickstart` |
 | 5.4.7 | README: how to add a new explainer | ✅ | Added to `README.md` |
 | 5.4.8 | README: how to add a new metric | ✅ | Added to `README.md` |
 | 5.4.9 | README: how to reproduce each figure | ✅ | Added to `README.md` |
-| 5.4.10 | pip-installable package (`vit-bench`) | ✅ | `pyproject.toml` configuration completed |
+| 5.4.10 | pip-installable package (`vit-bench`) | ✅ | Build system, dependencies and packages declared in `pyproject.toml`; `vit-bench` → `run_phase3:main` (2026-11-19) |
 
 ### Task 5.5 — Pre-Submission Checklist
 
