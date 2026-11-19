@@ -68,6 +68,13 @@ def interpret_cohens_d(d: float) -> str:
     return "Large"
 
 
+def _keys(df: pd.DataFrame, keys: List[str]) -> List[str]:
+    """Add 'seed' to pairing/grouping keys when several fine-tuning seeds are present."""
+    if "seed" in df and df["seed"].notna().any() and "seed" not in keys:
+        return keys[:2] + ["seed"] + keys[2:]
+    return keys
+
+
 def _wilcoxon(a: np.ndarray, b: np.ndarray) -> float:
     diff = a - b
     if len(diff) < 2:
@@ -94,7 +101,7 @@ def paired_compare(
         cb = f"{col_b}_B" if f"{col_b}_B" in merged else col_b
         if ca not in merged or cb not in merged:
             continue
-        for key, g in merged.groupby(group_by, sort=True):
+        for key, g in merged.groupby(group_by, sort=True, dropna=False):
             g = g[[ca, cb]].dropna()
             if len(g) < 2:
                 continue
@@ -136,8 +143,8 @@ def run_ablation_A1(df: pd.DataFrame) -> Optional[pd.DataFrame]:
         df, "A1", "token resolution",
         "CLS token", df.explainer == "raw_attention",
         "patch tokens", df.explainer == "raw_attention_patch",
-        LOCALIZATION, pair_on=["dataset", "model", "sample_id"],
-        group_by=["dataset", "model"],
+        LOCALIZATION, pair_on=_keys(df, ["dataset", "model", "sample_id"]),
+        group_by=_keys(df, ["dataset", "model"]),
     )
 
 
@@ -156,8 +163,8 @@ def run_ablation_A2(df: pd.DataFrame) -> Optional[pd.DataFrame]:
             df, "A2", "layer depth",
             label, df.explainer == exp,
             "last layer", df.explainer == "raw_attention",
-            metrics, pair_on=["dataset", "model", "sample_id"],
-            group_by=["dataset", "model"],
+            metrics, pair_on=_keys(df, ["dataset", "model", "sample_id"]),
+            group_by=_keys(df, ["dataset", "model"]),
         ) for exp, label in present
     ], ignore_index=True)
 
@@ -182,9 +189,10 @@ def run_ablation_A3(df: pd.DataFrame, output_dir: str) -> Optional[pd.DataFrame]
         if not all(c in df for c in cols):
             continue
         per_sample = df[cols].std(axis=1, ddof=0)
-        for key, g in per_sample.groupby([df.dataset, df.model, df.explainer]):
+        gk = _keys(df, ["dataset", "model", "explainer"])
+        for key, g in per_sample.groupby([df[k] for k in gk], dropna=False):
             sens_rows.append({
-                "dataset": key[0], "model": key[1], "explainer": key[2], "metric": metric,
+                **dict(zip(gk, key)), "metric": metric,
                 "strategies": ",".join(["mean", *modes]), "n": int(g.notna().sum()),
                 "masking_sensitivity": float(g.mean()),
             })
@@ -202,7 +210,8 @@ def _compare_columns(df: pd.DataFrame, metrics: List[str], mode: str) -> pd.Data
         alt = f"{metric}[{mode}]"
         if alt not in df:
             continue
-        for key, g in df.groupby(["dataset", "model", "explainer"], sort=True):
+        gkeys = _keys(df, ["dataset", "model", "explainer"])
+        for key, g in df.groupby(gkeys, sort=True, dropna=False):
             g = g[[alt, metric]].dropna()
             if len(g) < 2:
                 continue
@@ -210,7 +219,7 @@ def _compare_columns(df: pd.DataFrame, metrics: List[str], mode: str) -> pd.Data
             d = compute_cohens_d(xa, xb)
             rows.append({
                 "ablation": "A3", "variable": "masking strategy",
-                "dataset": key[0], "model": key[1], "explainer": key[2],
+                **dict(zip(gkeys, key)),
                 "metric": metric, "variant_A": f"{mode} mask", "variant_B": "mean mask",
                 "n": len(g), "mean_A": xa.mean(), "std_A": xa.std(ddof=1),
                 "mean_B": xb.mean(), "std_B": xb.std(ddof=1),
@@ -229,8 +238,8 @@ def run_ablation_A4(df: pd.DataFrame) -> Optional[pd.DataFrame]:
         df, "A4", "pre-training objective",
         "MAE", df.model == "mae_b16",
         "supervised", df.model == "vit_b16",
-        primary_metric_columns(df), pair_on=["dataset", "explainer", "sample_id"],
-        group_by=["dataset", "explainer"],
+        primary_metric_columns(df), pair_on=_keys(df, ["dataset", "explainer", "sample_id"]),
+        group_by=_keys(df, ["dataset", "explainer"]),
     )
 
 

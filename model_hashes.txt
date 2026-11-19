@@ -1,60 +1,75 @@
 ViT Explainability Benchmark — Pre-trained Model Hash Log
-Generated : 2026-04-11T10:21:33.357869
-Purpose   : Task 1.2 §6.4 — Reproducibility record
-============================================================
+Generated : 2026-11-19T16:11:46
+Source    : model_zoo/specs.py (the timm identifiers the code loads)
+Mode      : published HF Hub LFS SHA-256 (not downloaded)
+========================================================================
 
-Model      : ViT-B/16 (augreg IN-21K)
-Repo       : google/vit-base-patch16-224-in21k
-File       : model.safetensors
-SHA-256    : fd4e1169c7aa6c2dbfa8a6448be13b35abc0ee256190857c90009d12c094619b
-HF Commit  : b4569560a39a0f1af58e3ddaf17facf20ab919b0
-Local path : /Users/joeljohn/.cache/huggingface/hub/models--google--vit-base-patch16-224-in21k/snapshots/b4569560a39a0f1af58e3ddaf17facf20ab919b0/model.safetensors
-Date       : 2026-04-11T10:21:59.217931
-============================================================
+Model      : ViT-B/16  [vit_b16]
+timm ID    : vit_base_patch16_224.augreg_in21k
+Repo       : timm/vit_base_patch16_224.augreg_in21k
+Commit     : bb70896cd6bffdd579c3d4f7284f39d0c4ab46c3
+File       : model.safetensors  (410,397,786 bytes)
+SHA-256    : 2d31bb5597c720912f8ea5e4f1de73909a6911798d78ae5d1b9d63a955fed049
+Pretraining: Supervised on ImageNet-21k (21,843 classes) with the AugReg recipe; no ImageNet-1k fine-tuning.
+Reference  : Steiner et al., 2022 (How to train your ViT?)
+========================================================================
 
-Model      : DeiT-B/16 distilled (IN-1K)
-Repo       : facebook/deit-base-distilled-patch16-224
-File       : pytorch_model.bin
-SHA-256    : 5800cb485496f93b4b6e8632e358526d9279e15691cac05d31483e57dbc1390e
-HF Commit  : a0fc9b37fdb63c112e76104f669208784ecfe4ea
-Local path : /Users/joeljohn/.cache/huggingface/hub/models--facebook--deit-base-distilled-patch16-224/snapshots/a0fc9b37fdb63c112e76104f669208784ecfe4ea/pytorch_model.bin
-Date       : 2026-04-11T10:22:24.035270
-============================================================
+Model      : DeiT-B/16 (distilled)  [deit_b16]
+timm ID    : deit_base_distilled_patch16_224.fb_in1k
+Repo       : timm/deit_base_distilled_patch16_224.fb_in1k
+Commit     : ae7e500ba066fc77dcce2bf518f54a093b9f9c01
+File       : model.safetensors  (349,367,122 bytes)
+SHA-256    : ccc9d1bbeede1fc8609a7a7482773a35057e9f38035b9b804bced9126c5a70dc
+Pretraining: Supervised on ImageNet-1k with hard distillation from a RegNetY-16GF teacher (CLS + distillation token).
+Reference  : Touvron et al., 2021 (DeiT)
+========================================================================
 
-Model      : Swin-B (IN-22K→IN-1K)
-Repo       : microsoft/swin-base-patch4-window7-224
-File       : model.safetensors
-SHA-256    : e2fef3925119a5bf28d0e7cf5319a6c4a6c724ad36d30bd512688607259ac2f1
-HF Commit  : 20d6c26ef6455d36c0a78671d787c5da57513d4b
-Local path : /Users/joeljohn/.cache/huggingface/hub/models--microsoft--swin-base-patch4-window7-224/snapshots/20d6c26ef6455d36c0a78671d787c5da57513d4b/model.safetensors
-Date       : 2026-04-11T10:22:44.709816
-============================================================
+Model      : Swin-B  [swin_b]
+timm ID    : swin_base_patch4_window7_224.ms_in22k_ft_in1k
+Repo       : timm/swin_base_patch4_window7_224.ms_in22k_ft_in1k
+Commit     : a6a1eb2321b4f556fa0fa243fb777d47679f13c9
+File       : model.safetensors  (352,685,652 bytes)
+SHA-256    : c5d8c5ec47726ea2f4fd2b60954972ffe9d765f2c166812ffc2b1d61eef02cb8
+Pretraining: Supervised on ImageNet-22k, then fine-tuned on ImageNet-1k.
+Reference  : Liu et al., 2021 (Swin Transformer)
+========================================================================
 
-Model      : BEiT-B/16 pre-train (IN-22K)
-Repo       : microsoft/beit-base-patch16-224-pt22k
-File       : model.safetensors
-SHA-256    : 18b08989cad41adba4900055a11899c5d28b1d22b1fd5198c126eb2007ea000e
-HF Commit  : 49128b46539bd7dfad519b5e1014b050edabd9f6
-Local path : /Users/joeljohn/.cache/huggingface/hub/models--microsoft--beit-base-patch16-224-pt22k/snapshots/49128b46539bd7dfad519b5e1014b050edabd9f6/model.safetensors
-Date       : 2026-04-11T10:23:10.872732
-============================================================
+Model      : BEiT-B/16  [beit_b16]
+timm ID    : beit_base_patch16_224.in22k_ft_in22k
+Repo       : timm/beit_base_patch16_224.in22k_ft_in22k
+Commit     : 9b9827a7c99ab763a12630f2f7d913763cff4152
+File       : model.safetensors  (413,976,288 bytes)
+SHA-256    : 7fc26ec7a56dd9b7979da1213516f2b8444e19b61d017a2f9ec570a75f5c912f
+Pretraining: Self-supervised masked image modelling on ImageNet-22k (DALL-E tokenizer targets), FOLLOWED BY supervised intermediate fine-tuning on ImageNet-22k (21,841 classes) by the BEiT authors (original file beit_base_patch16_224_pt22k_ft22k.pth). The pure-MIM checkpoint is not distributed by timm; MIM vs supervised pre-training is isolated by ablation A4 (MAE vs ViT-B/16) instead.
+Reference  : Bao et al., 2022 (BEiT)
+========================================================================
 
-Model      : DINOv2-ViT-B/14 (LVD-142M)
-Repo       : facebook/dinov2-base
-File       : model.safetensors
-SHA-256    : d73036b56966966d07975d696bde331762f37297e2f095de8cea0040c3aa0841
-HF Commit  : f9e44c814b77203eaa57a6bdbbd535f21ede1415
-Local path : /Users/joeljohn/.cache/huggingface/hub/models--facebook--dinov2-base/snapshots/f9e44c814b77203eaa57a6bdbbd535f21ede1415/model.safetensors
-Date       : 2026-04-11T10:23:33.116462
-============================================================
+Model      : DINO ViT-B/8  [dino_vitb8]
+timm ID    : vit_base_patch8_224.dino
+Repo       : timm/vit_base_patch8_224.dino
+Commit     : 0d725ac467f73fd42e16bc0c86446db2d689d702
+File       : model.safetensors  (343,245,410 bytes)
+SHA-256    : 01be14b99784a4c0970a5703214513588daf27014e908ac7ea08967b7bd80f5f
+Pretraining: Self-supervised self-distillation (no labels) on ImageNet-1k; backbone weights of the official release (dino_vitbase8_pretrain.pth), no classification head.
+Reference  : Caron et al., 2021 (DINO)
+========================================================================
 
-Model      : DINO-ViT-B/8
-Source     : torch.hub.load('facebookresearch/dino:main', 'dino_vitb8')
-GitHub     : https://github.com/facebookresearch/dino
-Direct URL : https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth
-SHA-256    : 0dcd5c25e5cda6a920e7825484040cf9ca15993e1c09e227c7a961173d5c8b2e
-Note       : Hash is of the state_dict saved to a temp file; 
-             re-run to verify consistency.
-Date       : 2026-04-11T10:24:06.033127
-============================================================
+Model      : DINOv2 ViT-B/14  [dinov2_vitb14]
+timm ID    : vit_base_patch14_dinov2.lvd142m
+Repo       : timm/vit_base_patch14_dinov2.lvd142m
+Commit     : 4685c99dabffe5affac90bd99dbffd25801ae58d
+File       : model.safetensors  (346,334,872 bytes)
+SHA-256    : 55cbb5d887b336d430e649c277b85a1429e724871f9d02ac16203235886d8c7b
+Pretraining: Self-supervised on LVD-142M (distilled from ViT-g/14); variant without register tokens. Positional embeddings are interpolated from 518 px to 224 px.
+Reference  : Oquab et al., 2024 (DINOv2)
+========================================================================
 
+Model      : MAE ViT-B/16  [mae_b16]  (ablation A4 only)
+timm ID    : vit_base_patch16_224.mae
+Repo       : timm/vit_base_patch16_224.mae
+Commit     : a64dffd137c0cc3b09d9a1f55fa70fbddd3bf53a
+File       : model.safetensors  (343,208,550 bytes)
+SHA-256    : 78f46071f3e02ef39b9686a54c69b2f36c9d7f2c57f3ea5ca9ffc2d62ce4c3ba
+Pretraining: Self-supervised masked autoencoder (pixel reconstruction) on ImageNet-1k; encoder only.
+Reference  : He et al., 2022 (MAE)
+========================================================================

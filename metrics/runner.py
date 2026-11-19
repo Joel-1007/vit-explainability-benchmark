@@ -491,8 +491,8 @@ class Phase3Runner:
                     key      = f"{ds_name}-{model_name}-{exp_name}"
                     ckpt_path = Path(checkpoint_dir) / f"{key}.pkl"
 
-                    if ckpt_path.exists():
-                        log.info(f"Skipping {key} — checkpoint found at {ckpt_path}")
+                    if self.combination_done(checkpoint_dir, key):
+                        log.info(f"Skipping {key} — already done (checkpoint or unsupported marker)")
                         print(f"  ↩  Skip: {key}")
                         continue
 
@@ -516,8 +516,10 @@ class Phase3Runner:
                         )
                     except UnsupportedArchitectureError as exc:
                         # e.g. attention-based explainers on Swin-B (no CLS token).
-                        # No checkpoint is written, so this is not "completed".
-                        log.warning(f"Skipping {key}: {exc}")
+                        # Recorded explicitly so reports show "unsupported", never 0.
+                        self._write_unsupported(checkpoint_dir, key, str(exc),
+                                                (ds_name, model_name, exp_name))
+                        log.warning(f"Unsupported {key}: {exc}")
                         print(f"  ✗  Unsupported: {key}")
                         continue
                     all_results[key] = results
@@ -622,6 +624,11 @@ class Phase3Runner:
         if bound is not None:
             results["metrics"] = metrics_list
             results["metric_config"] = self.metric_computer.config()
+            m = explainer.model
+            results["task_type"] = getattr(m, "task_type", "single")
+            results["threshold_source"] = getattr(bound, "threshold_source", "argmax")
+            t = getattr(m, "decision_thresholds", None)
+            results["decision_thresholds"] = None if t is None else [float(v) for v in t]
 
         # Atomic write: write to tmp then rename
         tmp_path = ckpt_path.with_suffix(".pkl.tmp")
@@ -652,6 +659,23 @@ class Phase3Runner:
         """
         with open(ckpt_path, "rb") as f:
             return pickle.load(f)
+
+    UNSUPPORTED_SUFFIX = ".unsupported.json"
+
+    @classmethod
+    def combination_done(cls, checkpoint_dir: str, key: str) -> bool:
+        """True if ``key`` has a checkpoint or was recorded as unsupported."""
+        d = Path(checkpoint_dir)
+        return (d / f"{key}.pkl").exists() or (d / f"{key}{cls.UNSUPPORTED_SUFFIX}").exists()
+
+    @classmethod
+    def _write_unsupported(cls, checkpoint_dir: str, key: str, reason: str,
+                           names: tuple) -> None:
+        import json
+        rec = {"key": key, "status": "unsupported", "reason": reason,
+               **dict(zip(("dataset", "model", "explainer"), names))}
+        path = Path(checkpoint_dir) / f"{key}{cls.UNSUPPORTED_SUFFIX}"
+        path.write_text(json.dumps(rec, indent=2))
 
     @staticmethod
     def list_checkpoints(checkpoint_dir: str) -> List[str]:

@@ -28,6 +28,8 @@ uv run python scripts/verify_datasets.py \
   --voc        "$DATA_ROOT/voc2012" \
   --imagenet_s "$DATA_ROOT/imagenet_s50" \
   --nih        "$DATA_ROOT/nih_chestxray"
+# Evaluation protocol audit: splits, labels, annotation coverage, NIH patient leakage
+uv run python scripts/audit_datasets.py --data-root "$DATA_ROOT" --output_dir "$OUTPUT_DIR/audit"
 
 echo "[3/4] Running Baseline Evaluation Suite (Phase 3)"
 mkdir -p "$CHECKPOINT_DIR"
@@ -41,8 +43,15 @@ else
 fi
 # The Phase3Runner caches results incrementally per (dataset, model, explainer).
 # It can safely be interrupted and resumed.
+# Several fine-tuning seeds: export FINETUNE_SEEDS="0 1 2" (weights {model}_ft_{dataset}_seed{N}_*.pth)
+SEED_ARGS=()
+if [ -n "${FINETUNE_SEEDS:-}" ]; then
+  read -r -a _seeds <<< "$FINETUNE_SEEDS"
+  SEED_ARGS=(--finetune-seeds "${_seeds[@]}")
+fi
 uv run python run_phase3.py \
   --data-root "$DATA_ROOT" \
+  ${SEED_ARGS[@]+"${SEED_ARGS[@]}"} \
   --models "${MODELS[@]}" \
   --ablations \
   --checkpoint-dir "$CHECKPOINT_DIR" \
@@ -62,6 +71,7 @@ if [ -f "$RESULTS_CSV" ]; then
   uv run python scripts/phase4_correlation_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
   uv run python scripts/phase4_interaction_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
   uv run python scripts/phase4_ablations.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
+  uv run python scripts/compare_explainers.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
 else
   echo "WARNING: $RESULTS_CSV not found — Phase 4 analytics SKIPPED."
   echo "         Did Phase 3 finish? Re-run: uv run python -m metrics.aggregate --checkpoint-dir $CHECKPOINT_DIR"

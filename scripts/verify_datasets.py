@@ -369,6 +369,18 @@ def verify_nih_chestxray(root: str) -> None:
         _check(DS, "No train/test overlap", len(train_val & test_set) == 0,
                f"{len(train_val & test_set)} overlap")
 
+        # Patient-level separation (filenames are <patient>_<follow-up>.png)
+        pid = lambda name: name.split("_", 1)[0]          # noqa: E731
+        train_pat = {pid(n) for n in train_val}
+        test_pat  = {pid(n) for n in test_set}
+        bbox_pat  = {pid(n) for n in bbox_df["Image Index"].unique()}
+        _check(DS, "No patient in both train_val and test lists",
+               len(train_pat & test_pat) == 0, f"{len(train_pat & test_pat)} patients overlap")
+        _check(DS, "No BBox (localization) patient in train_val list",
+               len(bbox_pat & train_pat) == 0,
+               f"{len(bbox_pat & train_pat)} patients overlap — utils/eval_datasets.py "
+               "excludes them from evaluation")
+
         # Readability + size (sample 50 from bbox subset)
         from PIL import Image
 

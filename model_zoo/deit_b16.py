@@ -6,7 +6,7 @@ Patch size    : 16 × 16
 Params        : ~87 M
 IN-1K Top-1   : 83.4 %
 
-timm identifier : deit_base_distilled_patch16_224
+timm identifier : deit_base_distilled_patch16_224.fb_in1k
 HuggingFace     : facebook/deit-base-distilled-patch16-224
 
 Explainability note
@@ -24,10 +24,13 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-TIMM_ID    = "deit_base_distilled_patch16_224"
+TIMM_ID = MODEL_SPECS["deit_b16"].timm_id   # pinned in model_zoo/specs.py
 HF_REPO    = "facebook/deit-base-distilled-patch16-224"
 PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196
@@ -57,6 +60,8 @@ class DeiTB16(nn.Module):
         attention_mode: str = "cls",
     ):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["deit_b16"].mean, MODEL_SPECS["deit_b16"].std)
         self.backbone = timm.create_model(
             TIMM_ID,
             pretrained=pretrained,
@@ -74,61 +79,8 @@ class DeiTB16(nn.Module):
 
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
-    # ------------------------------------------------------------------
-    def get_last_selfattention(
-        self,
-        x: torch.Tensor,
-        token: str | None = None,
-    ) -> torch.Tensor:
-        """
-        Return attention weights from the last block.
-
-        Parameters
-        ----------
-        token : str | None
-            'cls'  → CLS token row  (index 0)
-            'dist' → distillation token row  (index 1)
-            'mean' → mean of both rows
-            None   → use self.attention_mode
-
-        Returns
-        -------
-        attn : Tensor, shape (B, H, N+2, N+2)
-            Indices: 0=CLS, 1=distillation, 2..N+1=patch tokens
-        """
-        mode = token or self.attention_mode
-
-        # Forward through patch embedding + positional encoding
-        x = self.backbone.patch_embed(x)
-        cls_tok  = self.backbone.cls_token.expand(x.shape[0], -1, -1)
-        dist_tok = self.backbone.dist_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_tok, dist_tok, x), dim=1)
-        x = self.backbone.pos_drop(x + self.backbone.pos_embed)
-
-        attn = None
-        for i, blk in enumerate(self.backbone.blocks):
-            if i < len(self.backbone.blocks) - 1:
-                x = blk(x)
-            else:
-                x_norm = blk.norm1(x)
-                B, N, C = x_norm.shape
-                qkv = blk.attn.qkv(x_norm).reshape(
-                    B, N, 3, blk.attn.num_heads, C // blk.attn.num_heads
-                ).permute(2, 0, 3, 1, 4)
-                q, k, _ = qkv.unbind(0)
-                attn = (q @ k.transpose(-2, -1)) * blk.attn.scale
-                attn = attn.softmax(dim=-1)
-
-        if mode == "cls":
-            return attn[:, :, 0:1, :]    # (B, H, 1, N+2)
-        elif mode == "dist":
-            return attn[:, :, 1:2, :]    # (B, H, 1, N+2)
-        elif mode == "mean":
-            return attn[:, :, :2, :].mean(dim=2, keepdim=True)
-        else:
-            return attn                  # Full (B, H, N+2, N+2)
 
 
 # ---------------------------------------------------------------------------

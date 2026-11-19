@@ -16,6 +16,8 @@ import torch
 import torch.nn.functional as F
 import torchvision.transforms.functional as TF
 
+from utils.tasks import class_log_odds, class_score, task_of
+
 MASK_MODES = ("zero", "mean", "blur")
 BLUR_KERNEL, BLUR_SIGMA = 51, 10.0
 
@@ -52,7 +54,9 @@ class FidelityMetrics:
     Parameters
     ----------
     mask_mode : str
-        'zero' to replace masked pixels with 0.
+        Inputs are [0, 1] pixels (models normalise internally), so baselines
+        are defined identically for every model:
+        'zero' to replace masked pixels with 0 (black).
         'mean' to replace masked pixels with the image per-channel mean.
         'blur' to replace masked pixels with a Gaussian-blurred copy of the
                image (kernel 51 px, sigma 10 px; Petsiuk et al., 2018).
@@ -130,11 +134,8 @@ class FidelityMetrics:
         return x * mask + baseline * (1.0 - mask)
 
     def _get_probs(self, model: torch.nn.Module, x: torch.Tensor, targets: torch.Tensor) -> torch.Tensor:
-        """Softmax probabilities for target classes."""
-        logits = model(x)
-        probs = F.softmax(logits, dim=-1)
-        batch_idx = torch.arange(x.shape[0], device=x.device)
-        return probs[batch_idx, targets]
+        """Target-class score: softmax (single-label) or sigmoid (multi-label) — utils/tasks.py."""
+        return class_score(model(x), targets, task_of(model))
 
     @torch.no_grad()
     def compute_all(
@@ -164,34 +165,29 @@ class FidelityMetrics:
         model.eval()
         k_fracs = k_fractions if k_fractions is not None else self.k_fractions
 
-        # Original probabilities
-        p_orig = self._get_probs(model, x, targets)
+        task = task_of(model)
+        logits_orig = model(x)
+        p_orig = class_score(logits_orig, targets, task)
+        lo_orig = class_log_odds(logits_orig, targets, task)
 
         results = {}
         for k_frac in k_fracs:
             mask = self._generate_mask(att_map, k_frac)
 
-            x_keep = self._apply_mask(x, mask, keep=True)
-            x_drop = self._apply_mask(x, mask, keep=False)
+            logits_keep = model(self._apply_mask(x, mask, keep=True))
+            logits_drop = model(self._apply_mask(x, mask, keep=False))
+            p_keep = class_score(logits_keep, targets, task)
+            p_drop = class_score(logits_drop, targets, task)
 
-            p_keep = self._get_probs(model, x_keep, targets)
-            p_drop = self._get_probs(model, x_drop, targets)
-
-            # F1 - Sufficiency: f(x) - f(x_keep)
+            # F1 - Sufficiency: s(x) - s(x_keep)   (lower is better)
             results[f"sufficiency@{k_frac:.2f}"] = (p_orig - p_keep).cpu()
 
-            # F2 - Comprehensiveness: f(x) - f(x_drop)
+            # F2 - Comprehensiveness: s(x) - s(x_drop)
             results[f"comprehensiveness@{k_frac:.2f}"] = (p_orig - p_drop).cpu()
 
-            # F3 - Log Odds Drop
-            eps = 1e-7
-            p_orig_clamped = p_orig.clamp(min=eps, max=1.0 - eps)
-            p_drop_clamped = p_drop.clamp(min=eps, max=1.0 - eps)
-
-            log_odds_orig = torch.log(p_orig_clamped / (1.0 - p_orig_clamped))
-            log_odds_drop = torch.log(p_drop_clamped / (1.0 - p_drop_clamped))
-
-            results[f"log_odds_drop@{k_frac:.2f}"] = (log_odds_orig - log_odds_drop).cpu()
+            # F3 - Log-odds drop; for sigmoid tasks exactly z_c(x) - z_c(x_drop)
+            results[f"log_odds_drop@{k_frac:.2f}"] = (
+                lo_orig - class_log_odds(logits_drop, targets, task)).cpu()
 
         return results
 
@@ -249,16 +245,8 @@ class FidelityMetrics:
         Returns tensor of shape (B,).
         """
         model.eval()
-        p_orig = self._get_probs(model, x, targets)
+        task = task_of(model)
         mask = self._generate_mask(att_map, k_frac)
-        x_drop = self._apply_mask(x, mask, keep=False)
-        p_drop = self._get_probs(model, x_drop, targets)
-
-        eps = 1e-7
-        p_orig_clamped = p_orig.clamp(min=eps, max=1.0 - eps)
-        p_drop_clamped = p_drop.clamp(min=eps, max=1.0 - eps)
-
-        log_odds_orig = torch.log(p_orig_clamped / (1.0 - p_orig_clamped))
-        log_odds_drop = torch.log(p_drop_clamped / (1.0 - p_drop_clamped))
-
-        return (log_odds_orig - log_odds_drop).cpu()
+        lo_orig = class_log_odds(model(x), targets, task)
+        lo_drop = class_log_odds(model(self._apply_mask(x, mask, keep=False)), targets, task)
+        return (lo_orig - lo_drop).cpu()

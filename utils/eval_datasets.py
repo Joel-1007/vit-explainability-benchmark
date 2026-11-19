@@ -3,12 +3,16 @@ eval_datasets.py — evaluation datasets with ground-truth localization masks.
 
 Every dataset yields ``(image, label, gt_mask)``:
 
-    image   : (3, 224, 224) float32, ImageNet-normalised
+    image   : (3, 224, 224) float32 RGB pixels in [0, 1] — NOT normalised;
+              each model wrapper applies its own pre-training mean/std
+              (model_zoo/normalize.py)
     label   : int, class index in the order the fine-tuned head uses
     gt_mask : (224, 224) int64 — 1 = object, 0 = background, 255 = ignore
 
-Image and mask go through the same geometry (resize shorter side to 256,
-centre-crop 224); masks use nearest-neighbour resampling so labels stay
+Geometry (frozen protocol, identical for every model and for fine-tuning
+validation): resize the shorter side to 256 px, centre-crop 224 px
+(crop fraction 0.875). Images use bicubic resampling on the 8-bit PIL image
+(values stay in [0, 255] → [0, 1]); masks use nearest-neighbour so labels stay
 discrete. ``metrics.localization._binary_gt`` treats 255 as "ignore".
 
 Class orders (fine-tuning MUST use the same order, or the explained class
@@ -18,7 +22,8 @@ is wrong):
                  ``ImageFolder``, which ``scripts/pilot_finetune.py`` uses.
 * ImageNet-S50 : sorted WordNet-ID folder names under ``validation/``.
 * PASCAL VOC   : the 20 standard VOC classes (``VOC_CLASSES``); segmentation
-                 index c ∈ 1..20 → label c-1.
+                 index c ∈ 1..20 → label c-1. Multi-label: one evaluation unit
+                 per (image, class present).
 * NIH CXR-14   : the 14 standard findings (``NIH_CLASSES``).
 
 Expected layouts (under ``<data_root>``)::
@@ -45,8 +50,12 @@ from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 
 IGNORE = 255
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)   # reference only; models normalise themselves
 IMAGENET_STD  = (0.229, 0.224, 0.225)
+
+# Frozen input geometry (also used by training/transforms.py)
+INPUT_SIZE  = 224
+RESIZE_SIZE = 256                       # crop fraction 224 / 256 = 0.875
 
 VOC_CLASSES = (
     "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
@@ -75,18 +84,25 @@ NUM_CLASSES = {
 # ---------------------------------------------------------------------------
 
 class PairTransform:
-    """Resize shorter side → ``resize``, centre-crop ``size``; same geometry for both."""
+    """
+    Resize shorter side → ``resize``, centre-crop ``size``; identical geometry
+    for image (bicubic) and mask (nearest). Returns [0, 1] pixels.
+    """
 
-    def __init__(self, size: int = 224, resize: int = 256) -> None:
+    def __init__(self, size: int = INPUT_SIZE, resize: int = RESIZE_SIZE) -> None:
         self.size, self.resize = size, resize
-        self.normalize = transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)
+
+    def image(self, img: Image.Image) -> torch.Tensor:
+        img = TF.center_crop(TF.resize(img, self.resize, InterpolationMode.BICUBIC), self.size)
+        return TF.to_tensor(img)
+
+    def mask(self, mask: np.ndarray) -> torch.Tensor:
+        m = Image.fromarray(mask.astype(np.uint8))
+        m = TF.center_crop(TF.resize(m, self.resize, InterpolationMode.NEAREST), self.size)
+        return torch.from_numpy(np.array(m, dtype=np.int64))
 
     def __call__(self, img: Image.Image, mask: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
-        m = Image.fromarray(mask.astype(np.uint8))
-        img = TF.center_crop(TF.resize(img, self.resize, InterpolationMode.BILINEAR), self.size)
-        m   = TF.center_crop(TF.resize(m,   self.resize, InterpolationMode.NEAREST),  self.size)
-        x = self.normalize(TF.to_tensor(img))
-        return x, torch.from_numpy(np.array(m, dtype=np.int64))
+        return self.image(img), self.mask(mask)
 
 
 class _MaskedDataset(Dataset):
@@ -156,10 +172,14 @@ class CUB200Eval(_MaskedDataset):
 
 class VOCEval(_MaskedDataset):
     """
-    VOC 2012 segmentation val. VOC images are multi-object, so each image is
-    assigned its *dominant* class (most labelled pixels); the mask marks that
-    class's pixels as 1, other objects and background as 0, and VOC's
-    object-boundary band (255) as ignore.
+    VOC 2012 segmentation ``val`` (1,449 images), multi-label formulation.
+
+    Evaluation unit = (image, class c present in the segmentation). The mask
+    marks class c's pixels as 1; other objects and background are 0 (an
+    explanation of c should not highlight them); VOC's object-boundary band
+    (255) is ignore. An image with k classes contributes k units, each
+    explained and scored for its own class with the sigmoid score s_c.
+    Images without any labelled object are recorded in ``self.skipped``.
     """
 
     def __init__(self, root: str | Path, split: str = "val",
@@ -169,16 +189,16 @@ class VOCEval(_MaskedDataset):
         ids = [l.strip() for l in
                (self.root / "ImageSets" / "Segmentation" / f"{split}.txt").read_text().splitlines()
                if l.strip()]
+        self.image_ids = ids
         self.samples = []
         self.skipped: List[str] = []
         for img_id in ids:
             seg = self._seg(img_id)
-            counts = np.bincount(seg[(seg > 0) & (seg != IGNORE)].ravel(), minlength=21)
-            if counts.sum() == 0:
+            present = np.unique(seg[(seg > 0) & (seg != IGNORE)])
+            if present.size == 0:
                 self.skipped.append(img_id)
                 continue
-            c = int(counts.argmax())
-            self.samples.append((img_id, c - 1))
+            self.samples.extend((img_id, int(c) - 1) for c in present)
 
     def _seg(self, img_id: str) -> np.ndarray:
         # Palette PNG: np.array yields class indices directly.
@@ -248,9 +268,17 @@ class NIHBBoxEval(_MaskedDataset):
     (BBox_List_2017.csv, ~880 images / 984 boxes). One sample per
     (image, finding); the mask is the union of that finding's boxes.
     Only these images have localization ground truth.
+
+    Patient-level leakage guard: NIH images of the same patient share the
+    filename prefix ``<patient>_<follow-up>.png``. If ``train_val_list.txt``
+    is present, box images whose *patient* appears in it are excluded (the
+    fine-tuned model may have seen that patient). Exclusions are recorded in
+    ``self.leakage`` and logged; ``require_split=True`` makes a missing
+    train_val_list an error.
     """
 
-    def __init__(self, root: str | Path, transform: Optional[Callable] = None) -> None:
+    def __init__(self, root: str | Path, transform: Optional[Callable] = None,
+                 exclude_train_patients: bool = True, require_split: bool = False) -> None:
         super().__init__(transform)
         import pandas as pd
 
@@ -269,7 +297,27 @@ class NIHBBoxEval(_MaskedDataset):
             boxes.setdefault(key, []).append(
                 (float(r[x_col]), float(r[y_col]), float(r[w_col]), float(r[h_col]))
             )
-        self.samples = [(img, label, b) for (img, label), b in sorted(boxes.items())]
+        samples = [(img, label, b) for (img, label), b in sorted(boxes.items())]
+
+        self.leakage = {"checked": False, "excluded_samples": 0, "excluded_patients": []}
+        split_file = self.root / "train_val_list.txt"
+        if exclude_train_patients and split_file.exists():
+            train_patients = {nih_patient_id(l.strip())
+                              for l in split_file.read_text().splitlines() if l.strip()}
+            leaky = sorted({nih_patient_id(img) for img, _, _ in samples} & train_patients)
+            samples = [s for s in samples if nih_patient_id(s[0]) not in train_patients]
+            self.leakage = {"checked": True, "excluded_patients": leaky,
+                            "excluded_samples": len(boxes) - len(samples)}
+            if leaky:
+                import warnings
+                warnings.warn(
+                    f"NIH: excluded {self.leakage['excluded_samples']} box samples from "
+                    f"{len(leaky)} patients that also appear in train_val_list.txt",
+                    RuntimeWarning, stacklevel=2,
+                )
+        elif require_split:
+            raise FileNotFoundError(f"{split_file} not found; cannot check patient leakage")
+        self.samples = samples
 
     def _load(self, idx):
         img_name, label, boxes = self.samples[idx]
@@ -280,6 +328,11 @@ class NIHBBoxEval(_MaskedDataset):
             x1, y1 = min(int(round(x + w)), img.width), min(int(round(y + h)), img.height)
             mask[y0:y1, x0:x1] = 1
         return img, label, mask
+
+
+def nih_patient_id(image_name: str) -> str:
+    """'00000013_005.png' → '00000013' (NIH filenames are <patient>_<follow-up>)."""
+    return Path(image_name).name.split("_", 1)[0]
 
 
 # ---------------------------------------------------------------------------

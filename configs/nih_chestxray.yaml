@@ -28,14 +28,14 @@ re_prob:        0.25
 re_mode:        pixel
 re_count:       1
 interpolation:  bicubic
-mixup_alpha:    0.8
+mixup_alpha:    0.8          # MultiLabelMixup: mixes multi-hot labels, weight = product (training/mixup.py)
 cutmix_alpha:   0.0          # Disabled — Mixup only
-label_smoothing: 0.1
+label_smoothing: 0.0          # multi-label: no smoothing (training/loss.py)
 
 # Class imbalance
 # pos_weight[c] = (N - N_pos_c) / N_pos_c  — computed dynamically from train set.
 # BCEWithLogitsLoss is used instead of CrossEntropyLoss (multi-label pathology).
-class_weighted_loss: true    # triggers BCEWithLogitsLoss in training.loss.build_loss()
+class_weighted_loss: true    # pos_weight = N_neg/N_pos per class from the training split
 
 # Localization evaluation — only the BBox subset (984 images, 8 classes)
 # GT file: BBox_List_2017.csv
@@ -62,3 +62,7 @@ stochastic_depth: 0.1
 amp:            true
 num_workers:    8
 accum_steps:    1
+
+# Task formulation (utils/tasks.py): multi-label, sigmoid scores, per-class
+# thresholds estimated on the validation split after the final epoch.
+task: multi

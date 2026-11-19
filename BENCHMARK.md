@@ -53,15 +53,56 @@ to architecture, not training conditions.
 | #   | Model               | Architecture     | Pre-training                 | Patch | Params | IN-1K Top-1   | timm ID                                         |
 | --- | ------------------- | ---------------- | ---------------------------- | ----- | ------ | ------------- | ----------------------------------------------- |
 | 1   | **ViT-B/16**        | Standard ViT     | Supervised IN-21K (AugReg)   | 16    | 86 M   | 84.2 %        | `vit_base_patch16_224.augreg_in21k`             |
-| 2   | **DeiT-B/16**       | DeiT (distilled) | Knowledge distillation IN-1K | 16    | 87 M   | 83.4 %        | `deit_base_distilled_patch16_224`               |
+| 2   | **DeiT-B/16**       | DeiT (distilled) | Knowledge distillation IN-1K | 16    | 87 M   | 83.4 %        | `deit_base_distilled_patch16_224.fb_in1k`       |
 | 3   | **Swin-B**          | Shifted-window   | Supervised IN-22K → IN-1K    | 4     | 88 M   | 85.2 %        | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
-| 4   | **BEiT-B/16**       | BERT-style MIM   | MIM IN-22K (DALL-E dVAE)     | 16    | 86 M   | 85.2 %        | `beit_base_patch16_224.in22k` (pre-train only)  |
-| 5   | **DINO-ViT-B/8**    | Standard ViT     | Self-distillation IN-1K      | 8     | 85 M   | 80.1 % (k-NN) | torch.hub `facebookresearch/dino`               |
+| 4   | **BEiT-B/16**       | BERT-style MIM   | MIM IN-22K **+ supervised IN-22K fine-tune** | 16 | 86 M | 85.2 % | `beit_base_patch16_224.in22k_ft_in22k`  |
+| 5   | **DINO-ViT-B/8**    | Standard ViT     | Self-distillation IN-1K      | 8     | 85 M   | 80.1 % (k-NN) | `vit_base_patch8_224.dino`                      |
 | 6   | **DINOv2-ViT-B/14** | Standard ViT     | Self-distillation LVD-142M   | 14    | 86 M   | 86.5 %        | `vit_base_patch14_dinov2.lvd142m`               |
 | A4  | MAE-ViT-B/16        | Standard ViT     | Masked autoencoder IN-1K     | 16    | 86 M   | —             | `vit_base_patch16_224.mae` (ablation A4 only)   |
 
 IN-1K Top-1 is the published accuracy of each architecture/pre-training, for reference;
-the benchmark loads the IDs above (matching `model_zoo/`) and fine-tunes them per dataset.
+the benchmark loads the IDs above and fine-tunes them per dataset. **Identity and
+provenance have one source of truth, `model_zoo/specs.py`**; every weight file comes
+from the HF Hub repo `timm/<timm ID>` and its SHA-256 is logged in `model_hashes.txt`
+(`scripts/record_model_hashes.py`).
+
+> [!IMPORTANT]
+> **Pre-training provenance (report exactly this in the paper).**
+> - **BEiT-B/16** weights include a *supervised* stage: MIM pre-training on IN-22K followed
+>   by supervised intermediate fine-tuning on IN-22K (21,841 classes) by the BEiT authors
+>   (`beit_base_patch16_224_pt22k_ft22k.pth`). timm does not distribute the pure-MIM
+>   checkpoint, and the previous identifier `beit_base_patch16_224.in22k` does not exist.
+>   BEiT is therefore *not* a purely self-supervised model here; MIM vs supervised
+>   pre-training is isolated by ablation A4 (MAE vs ViT-B/16).
+> - **DINO ViT-B/8** is loaded through timm (`vit_base_patch8_224.dino`), not PyTorch Hub.
+>   `scripts/verify_model_zoo.py --compare-dino-official` verified that its 150 tensors are
+>   bit-identical to the official `dino_vitbase8_pretrain.pth` (2026-11-19).
+> - **ViT-B/16** is the AugReg IN-21K checkpoint (Steiner et al., 2022), not the original
+>   `google/vit-base-patch16-224-in21k` release.
+>
+> **Verified loading (2026-11-19, timm 1.0.31).** `scripts/verify_model_zoo.py` loads all
+> seven checkpoints with real weights and checks: SHA-256 = published hash, strict load,
+> token layout (ViT/BEiT/MAE 1+14², DeiT 2+14², DINO 1+28², DINOv2 1+16², Swin 7×7×1024
+> map), and post-softmax attention capture (rows sum to 1; Swin unsupported as expected).
+>
+> **Classifier pooling (protocol decision, 2026-11-19).** Every model with a CLS token
+> classifies from it: ViT, DINO, DINOv2, MAE, and **BEiT, whose native timm head mean-pools
+> the patch tokens** — fine-tuned here with a CLS-token head so that CLS-row attention
+> explainers (E1, E2, E4) follow its decision pathway. BEiT's trained final LayerNorm is
+> carried over (`fc_norm` → `norm`); the head is new in either case. This deviates from
+> BEiT's own fine-tuning recipe and is reported as such. DeiT keeps its native averaged
+> CLS + distillation heads (E1/E2/E4 read the CLS row; the distillation path is not
+> explained by them — documented limitation). Swin mean-pools (no CLS token).
+> `verify_model_zoo.py` checks the pooling of every model.
+>
+> **BEiT CLS-head caveat (recorded diagnostic; decision frozen).** On the real weights,
+> BEiT's pre-trained CLS output is nearly input-invariant (mean cosine similarity of CLS
+> features across different images 0.9999; ViT-B/16 0.82; BEiT's mean-pooled patch
+> features 0.94): its supervised stage mean-pooled, so fine-tuning must teach the CLS token
+> to carry image information. **The protocol is frozen: BEiT uses the CLS-token head.**
+> A bounded diagnostic — one pilot fine-tune per head (`scripts/finetune.py --beit-pool
+> token|avg`) — may be run once and its validation results recorded here and in the paper
+> as a limitation. It does not change the protocol.
 MAE-ViT-B/16 is not part of the main matrix; it is the supervised-vs-MAE comparison of
 ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable).
 
@@ -69,7 +110,7 @@ ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable
 
 | Axis            | Values represented                                                    |
 | --------------- | --------------------------------------------------------------------- |
-| Supervision     | Supervised (ViT, DeiT, Swin), Self-supervised (BEiT MIM, DINO, DINOv2; MAE in A4) |
+| Supervision     | Supervised (ViT, DeiT, Swin), Self-supervised (DINO, DINOv2; MAE in A4), MIM + supervised (BEiT) |
 | Attention scope | Global (ViT, DeiT, BEiT, DINO, DINOv2), Local-window (Swin)           |
 | Patch size      | 8 (DINO), 14 (DINOv2), 16 (ViT/DeiT/BEiT), 32 (window-merged in Swin) |
 | Special tokens  | CLS only (ViT/BEiT/DINO/DINOv2), CLS+Distil (DeiT), None (Swin)       |
@@ -100,22 +141,28 @@ tuning is performed — the protocol is fixed once and applied uniformly.
 | **Epochs**                  | 50 (CUB-200-2011); 30 (VOC, NIH ChestX-ray14, ImageNet-S-50) | —             |
 | **Input size**              | 224 × 224, bicubic interpolation                | —                          |
 | **Augmentation**            | RandAugment M=9 N=2, random erasing p=0.25      | Cubuk et al. (2020)        |
-| **Mixup**                   | α=0.8; CutMix disabled                          | Zhang et al. (2018)        |
-| **Label smoothing**         | ε=0.1                                           | Szegedy et al. (2016)      |
+| **Mixup**                   | α=0.8; CutMix disabled. Single-label: timm Mixup. Multi-label: λ-mix of images and multi-hot targets, entry weight = product (ignored in either image → ignored) | Zhang et al. (2018) |
+| **Label smoothing**         | ε=0.1 single-label; none for multi-label        | Szegedy et al. (2016)      |
 | **Stochastic depth**        | drop_path_rate=0.1                              | Huang et al. (2016)        |
 | **Dropout**                 | 0.0 (disabled)                                  | —                          |
-| **Loss (CUB/VOC/ImageNet)** | SoftTargetCrossEntropy (Mixup-compatible)       | —                          |
-| **Loss (NIH ChestX-ray14)** | Binary CE, class-weighted (multi-label)         | —                          |
+| **Loss (CUB, ImageNet-S)**  | SoftTargetCrossEntropy (single-label, Mixup-compatible) | —                  |
+| **Loss (VOC, NIH)**         | Masked BCE with logits (multi-label); NIH pos_weight = N_neg/N_pos per class from the training split; VOC difficult-only classes have weight 0 | — |
+| **Classifier head**         | CLS token for every CLS-token model (BEiT included); mean pool for Swin | §1.1 |
+| **Model selection**         | Final epoch, every model (no early stopping)    | —                          |
+| **Decision thresholds**     | Multi-label only: per class, F1-optimal on the validation split after the final epoch; frozen in the checkpoint + `.thresholds.json` | `training/thresholds.py` |
 
 ### Implementation files
 
 | File                     | Responsibility                             |
 | ------------------------ | ------------------------------------------ |
 | `training/transforms.py` | RandAugment + random erasing pipeline      |
-| `training/mixup.py`      | Batch-level Mixup (α=0.8)                  |
+| `training/mixup.py`      | Batch-level Mixup (α=0.8), per task type   |
 | `training/optimizer.py`  | AdamW + LR warmup + cosine decay           |
-| `training/loss.py`       | SoftTargetCrossEntropy / BCE               |
-| `training/trainer.py`    | Full fine-tune loop with grad accumulation |
+| `training/loss.py`       | SoftTargetCrossEntropy / masked BCE        |
+| `training/thresholds.py` | Validation-only F1-optimal thresholds      |
+| `training/trainer.py`    | Fine-tune loop, final-epoch checkpoint, val AUROC/mAP (multi-label) |
+| `utils/train_datasets.py`| Training/validation splits, leakage checks |
+| `scripts/finetune.py`    | Fine-tune one (model, dataset, seed)       |
 
 ### Pilot sanity check (§7)
 
@@ -136,10 +183,38 @@ Four benchmark datasets are used. All are resized (shorter side 256) and centre-
 to 224×224 for inference; GT masks go through the same geometry with nearest-neighbour
 resampling (`utils/eval_datasets.py`).
 
+### Input protocol (frozen, 2026-11-19)
+
+| Step | Definition | Applies to |
+| ---- | ---------- | ---------- |
+| Geometry | shorter side → 256 px (bicubic, 8-bit PIL), centre-crop 224 px (crop fraction 0.875) | evaluation and fine-tuning validation — bit-identical (tested) |
+| Masks | same resize/crop, nearest neighbour; 255 = ignore | evaluation |
+| Model input | RGB pixels in **[0, 1]**, never normalised by the data pipeline | all models |
+| Normalisation | each wrapper applies its **pre-training** mean/std internally (`model_zoo/normalize.py`): 0.5/0.5 for ViT-B/16 (AugReg) and BEiT, ImageNet statistics for the others (values pinned in `model_zoo/specs.py`, tested against timm's configs) | all models |
+| Training augmentation | RandomResizedCrop (bicubic), flip, colour jitter 0.4, RandAugment m9-n2, random erasing p=0.25 with N(0,1) noise defined in ImageNet-normalised coordinates and mapped back to [0,1] (identical for every model), Mixup | fine-tuning |
+
+**Why.** Every model sees identical pixels and every perturbation is defined once, in
+pixel space, while each backbone still receives the statistics it was pre-trained with.
+Normalisation is part of the model, not of the experiment. Consequences:
+RISE masks fill with black (as in the RISE paper); the IG baseline is the black image;
+LIME fills hidden patches with the image's mean colour; fidelity baselines are black
+(`zero`), image mean (`mean`, default) or Gaussian blur; R1 noise ε = 0.05 is in pixel
+units (≈ 13/255) and perturbed images are clamped to [0, 1]; PGD's ε = 0.03 (≈ 8/255) is in
+pixel units. Previously all models used ImageNet statistics in the data pipeline, so
+"zero" meant the dataset-mean colour, R1's ε was ≈ 0.011 in pixel units, and ViT-B/16 /
+BEiT received inputs normalised differently from pre-training.
+
+**Verification.** `tests/test_pixel_protocol.py` checks the per-model statistics against
+timm, internal normalisation, train-validation/evaluation equality for five aspect
+ratios, GT-mask alignment through every loader (IoU > 0.95 between the drawn object and
+its transformed mask), and each perturbation baseline. On real data,
+`scripts/audit_datasets.py --overlays 8` saves image+mask overlays for visual inspection
+**before** the protocol is used for fine-tuning.
+
 | Dataset              | Task                                         | Classes | Fine-tune train | **Evaluation set (with GT)**                     | GT type used                    | Config                       |
 | -------------------- | -------------------------------------------- | ------- | --------------- | ------------------------------------------------ | ------------------------------- | ---------------------------- |
 | **CUB-200-2011**     | Fine-grained bird classification             | 200     | 5,994           | 5,794 (official test split)                      | Pixel segmentation masks        | `configs/cub200.yaml`        |
-| **PASCAL VOC 2012**  | Object classification (dominant class)       | 20      | 10,582 (SBD aug.) | 1,449 (segmentation `val`)                     | Pixel segmentation masks        | `configs/pascal_voc.yaml`    |
+| **PASCAL VOC 2012**  | **Multi-label** object classification         | 20      | 5,717 (`Main/train`) | 1,449 (segmentation `val`) → one unit per (image, class present) | Pixel segmentation masks | `configs/pascal_voc.yaml`    |
 | **ImageNet-S-50**    | 50-class subset of ImageNet-1K               | 50      | ImageNet-1K images of the 50 classes | 752 (`validation`, as checked by `verify_datasets.py`) | Pixel segmentation masks | `configs/imagenet_s50.yaml`  |
 | **NIH ChestX-ray14** | Multi-label chest pathology (14 findings)    | 14      | 86,524 (train/val list) | **984 boxes on ~880 images** (`BBox_List_2017.csv`) | Bounding boxes, 8 findings | `configs/nih_chestxray.yaml` |
 
@@ -150,9 +225,38 @@ resampling (`utils/eval_datasets.py`).
 > are small, so report per-finding results with their confidence intervals.
 > The fourth dataset is NIH ChestX-ray14 throughout; CheXpert/CheXlocalize is only
 > discussed as an alternative in `docs/dataset_sources.md`.
+>
+> **Patient-level separation.** NIH filenames are `<patient>_<follow-up>.png`.
+> `verify_datasets.py` checks that no patient is in both `train_val_list.txt` and
+> `test_list.txt`, and that no box (localization) patient is in the training list;
+> the evaluation loader additionally drops box images of any patient found in
+> `train_val_list.txt` and records them (`dataset_audit.json` → `patient_leakage`).
+> NIH fine-tuning must use `train_val_list.txt` only.
 
-> **VOC labels.** VOC images often contain several objects; each image is labelled with
-> its dominant class (most segmented pixels) and the GT mask covers that class only.
+**Protocol audit.** `scripts/audit_datasets.py --data-root DIR` reports, per dataset, the
+evaluation split and population, expected vs present classes with per-class counts and
+the imbalance ratio, and GT statistics (empty-mask fraction, GT area, ignore area);
+it exits non-zero on blocking issues. `run_benchmark.sh` runs it before Phase 3.
+
+### Task formulation and splits (Stage 3, 2026-11-19)
+
+| Dataset | Task | Score s_c | Fine-tune train | Validation (monitoring; thresholds) | Evaluation unit |
+| ------- | ---- | --------- | --------------- | ----------------------------------- | --------------- |
+| CUB-200 | single-label | softmax | official train minus 10% per-class hold-out | the hold-out | image (test split) |
+| ImageNet-S-50 | single-label | softmax | `train/` (ImageNet-1k images of the 50 classes) minus 10% hold-out | the hold-out | image (`validation/`) |
+| VOC 2012 | **multi-label** | sigmoid | `Main/train`, labels from XML; difficult-only classes ignored | `Main/val` minus segmentation `val` | (image, class present in the segmentation); mask = that class's pixels, other objects background, boundary ignored |
+| NIH CXR-14 | **multi-label** | sigmoid | `train_val_list`, 90% of patients (fixed split) | other 10% of patients | (box image, finding); patients in `train_val_list` excluded |
+
+All splits are built by `utils/train_datasets.py`, which raises if a training or validation
+image is an evaluation image; class orders are shared with `utils/eval_datasets.py`.
+Hold-out splits use a fixed seed (identical for every fine-tuning seed).
+The dominant-class shortcut previously used for VOC is removed.
+
+**Correctness.** Single-label: argmax = y. Multi-label: s_y ≥ t_y with the frozen
+validation thresholds — a detection operating point, not a calibration statement. Every
+multi-label evaluation unit is a positive pair, so "accuracy" in the summaries is recall at
+t (the `task_type` column says which). Validation quality is reported as top-1 (single) or
+macro AUROC and mAP (multi) in the checkpoint metadata.
 
 ### Dataset verification protocol
 
@@ -189,10 +293,26 @@ Current test run (2026-11-19, CPU, Python 3.13.8 / PyTorch 2.15.0):
 **300 passed, 2 skipped (CUDA), 0 failed** (`uv run pytest`). Result blocks below dated
 2026-04-10 were recorded under Python 3.11.8 / PyTorch 2.10.0 and are kept as history.
 
-**Seeds and uncertainty.** Each (model, dataset) pair currently has a single fine-tuned
-checkpoint, so architecture effects are confounded with fine-tuning-seed variance.
-`combination_summary.csv` reports 95% bootstrap CIs over samples; seed variance needs
-several fine-tuning seeds per pair (planned).
+**Seeds and uncertainty.** With a single fine-tuned checkpoint per (model, dataset),
+architecture effects are confounded with fine-tuning-seed variance. The pipeline
+supports several seeds end to end: fine-tune with `--seed N` (`training.set_seed`,
+checkpoints named `{model}_ft_{dataset}_seed{N}_*.pth`), evaluate with
+`run_phase3.py --finetune-seeds 0 1 2` (or `FINETUNE_SEEDS="0 1 2" bash run_benchmark.sh`).
+`seed_summary.csv` then reports, per combination, the mean and the **across-seed std**
+of every primary metric; per-seed rows stay in `combination_summary.csv` (with 95%
+bootstrap CIs over samples) and ablation/explainer comparisons pair samples within a seed.
+
+**Statistical reporting.** `scripts/compare_explainers.py` compares every explainer pair on
+the same images per (dataset, model, seed, metric): mean difference with bootstrap CI,
+Cohen's d and paired d_z, Wilcoxon signed-rank, and Holm-adjusted p-values within each
+family and globally (`explainer_pairwise.csv`). Class imbalance: `class_summary.csv`
+(per-class n, share, accuracy, metrics) and `<metric>_macro` / `accuracy_macro` columns
+(class-balanced means) in `combination_summary.csv`.
+
+**Coverage.** Explainer–model incompatibilities (e.g. attention methods on Swin-B) are
+written as `<key>.unsupported.json` with the reason; `coverage.csv` lists every expected
+combination as ok / unsupported / missing. Such combinations have no rows in any summary,
+so they can never appear as zero scores.
 
 ---
 
@@ -207,7 +327,7 @@ Thirteen metrics are implemented across four complementary families:
 | Family                  | Metrics                                           | Question answered                                          |
 | ----------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
 | **Fidelity** (§2.1)     | F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds | Does the attribution reflect what the model actually uses? |
-| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CalibGap               | Does the attribution point at the right region?            |
+| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CLG                    | Does the attribution point at the right region?            |
 | **Robustness** (§2.3)   | R1 MaxSens, R2 ModelRand, R3 HeadPerm             | Is the attribution stable and model-sensitive?             |
 | **Complexity** (§2.4)   | C1 Gini, C2 Entropy, C3 EMR                       | Is the attribution concise?                                |
 
@@ -252,9 +372,17 @@ $$F3 = \text{LogOddsDrop}(\phi, f, x) = \log \frac{f(x)_{y^*}}{1 - f(x)_{y^*}} -
 where $x' = \tilde{x}_{\text{drop}}$. Measures the log-odds change of the explained class
 after removing the top-$k$ attributed patches. **Higher is better.**
 
+**Class score $f(\cdot)_y$ by task (`utils/tasks.py`).** Single-label datasets (CUB,
+ImageNet-S): softmax probability. Multi-label datasets (VOC, NIH): sigmoid probability of
+the explained class, so F1/F2 are changes in that class's independent detection score and
+F3 is exactly the logit difference $z_y(x) - z_y(\tilde{x}_{\text{drop}})$. RISE and LIME
+weight their samples by the same score; GradCAM, Chefer LRP and IG use the logit $z_y$
+under both formulations. Fidelity values are therefore comparable within a dataset;
+cross-dataset analyses use rankings (Kendall τ).
+
 **Masking baseline.** The default replaces removed patches with the per-channel image
-mean (`mask_mode="mean"`); zero and Gaussian-blur baselines are compared in ablation
-A3. Pixel-space masking produces inputs a ViT never saw during training (out of
+mean (`mask_mode="mean"`); zero (black) and Gaussian-blur baselines are compared in
+ablation A3. All baselines are defined in [0, 1] pixel space (input protocol, §1.3). Pixel-space masking produces inputs a ViT never saw during training (out of
 distribution); token removal would avoid this and is noted as a limitation.
 All three metrics are evaluated at $k \in \{0.1, 0.2, 0.5\}$ (fraction of patches).
 
@@ -366,17 +494,39 @@ area fraction $|M^{GT}|/|M|$, the value of an uninformative uniform map.
 
 ---
 
-### L4 — Calibration Gap (CalibGap)
+### L4 — Correctness-Conditional Localisation Gap (CLG)
 
-Let $\mathcal{C}$ and $\mathcal{I}$ be correctly and incorrectly classified samples:
+*(Formerly "Calibration Gap". It is not a calibration measure — it asks whether
+explanations localise better when the model is right — and was renamed and redefined
+after audit, 2026-11-19.)*
 
-$$L4 = \text{CalibGap} = \mathbb{E}_{i \in \mathcal{C}}\!\left[\text{EGT}_i\right] - \mathbb{E}_{i \in \mathcal{I}}\!\left[\text{EGT}_i\right]$$
+Per evaluation unit: $\text{EGTlift} = \text{EGT} - a$, where $a$ is the GT-area fraction (the
+EGT of an uninformative uniform map). For each class $c$ with at least 10 correct **and** 10
+incorrect units:
 
-**Range:** $(-1, 1)$. Positive = explanation aligns better with GT on correct predictions
-(necessary condition for faithfulness). Near-zero or negative = sanity-check failure.
+$$\Delta_c = \overline{\text{EGTlift}}_{\,c,\ \text{correct}} - \overline{\text{EGTlift}}_{\,c,\ \text{incorrect}}, \qquad L4 = \text{CLG} = \frac{1}{|\mathcal{K}|}\sum_{c \in \mathcal{K}} \Delta_c$$
 
-**Undefined** when all predictions correct ($\mathcal{I} = \emptyset$) or all incorrect
-($\mathcal{C} = \emptyset$) — raises `ValueError`.
+over the eligible classes $\mathcal{K}$, with a class-stratified 95% bootstrap CI. Correctness
+is argmax = y (single-label) or $s_y \ge t_y$ with frozen validation thresholds (multi-label).
+
+**Why each ingredient.**
+- *EGT lift.* Mistakes cluster on hard classes, often with small objects, whose raw EGT is
+  low by chance; the pooled raw-EGT gap therefore partly measures object size (a synthetic
+  test with identical lift but smaller objects among errors gives a raw gap of 0.4 and
+  CLG ≈ 0).
+- *Within-class, equally weighted.* Removes class-composition effects (e.g. NIH findings
+  with very different difficulty and box size).
+- *Eligibility (≥ 10 per side).* Small groups give unstable differences; ineligible classes
+  are excluded and `clg_n_classes` is reported; no eligible class → NaN.
+- *Threshold dependence (multi-label).* Only positive (image, class) units have masks, so
+  "incorrect" means "missed at $t_y$". A threshold-free companion is always reported:
+  `egt_score_spearman`, the mean within-class Spearman ρ(EGTlift, $s_y$).
+
+**Range:** $(-1, 1)$. Positive = explanations localise better on correct predictions.
+**Not** a probability-calibration metric (no ECE/reliability claim).
+
+Units whose GT lies entirely outside the 224 centre crop have undefined localisation
+(NaN, never 0) and do not enter L1–L4 (`gt_cropped_out_fraction` in the audit).
 
 ---
 
@@ -400,8 +550,10 @@ pg = lm.pointing_game(att_map, gt_mask)      # → 1.0 or 0.0
 # L3 — EGT
 e = lm.egt(att_map, gt_mask)                 # → float in [0, 1]
 
-# L4 — CalibGap (dataset-level, requires partitioned lists)
-gap = lm.calibration_gap(atts_correct, atts_incorrect, gt_masks=all_masks)
+# L4 — CLG is computed per combination in metrics/aggregate.py
+# (correctness_localisation_gap, egt_score_spearman) from per-sample EGT lift.
+# lm.calibration_gap() is the legacy pooled raw-EGT difference, kept for the
+# old BenchmarkRunner only — do not report it.
 
 # All three per-sample metrics in one call (L4 excluded)
 scores = lm.compute_all(att_map, gt_mask)
@@ -444,24 +596,24 @@ complementary: it penalises boundary-concentrated peaks.
 
 ---
 
-#### Proposition 2.2.C — CalibGap is gameable
+#### Proposition 2.2.C — CLG is gameable
 
-CalibGap is a difference of conditional means, not a scoring rule, so it carries no
+CLG is a difference of conditional means, not a scoring rule, so it carries no
 incentive-compatibility guarantee.
 
-**Claim.** CalibGap can be gamed by an adversarial explainer with access to the
+**Claim.** CLG can be gamed by an adversarial explainer with access to the
 prediction correctness flag.
 
 _Proof by construction._ If $\phi$ outputs high-EGT maps for correct predictions
-and low-EGT maps for incorrect ones, CalibGap → 1 without faithfulness. $\square$
+and low-EGT maps for incorrect ones, CLG → 1 without faithfulness. $\square$
 
 **Mitigation.** The benchmark:
 
 1. Passes only `(model, image)` to explainers — never correctness flags.
-2. Reports L1–L3 alongside L4 so inflated CalibGap is detectable.
-3. Requires consistent CalibGap across all four datasets.
+2. Reports L1–L3 alongside L4 so an inflated CLG is detectable.
+3. Requires consistent CLG across all four datasets.
 
-**Implication.** CalibGap is a _diagnostic_ metric, never a primary ranking criterion.
+**Implication.** CLG is a _diagnostic_ metric, never a primary ranking criterion.
 
 ---
 
@@ -745,7 +897,7 @@ uv run pytest tests/ -v
 | Metric       | Cost per sample        | Recommendation          |
 | ------------ | ---------------------- | ----------------------- |
 | L1–L3        | O(1) tensor ops        | Full dataset            |
-| L4 CalibGap  | O(N) at dataset end    | Full dataset            |
+| L4 CLG       | O(N) at aggregation    | Full dataset            |
 | R1 MaxSens   | K explainer calls      | Fixed subset (`--robustness-subset`, default 100) |
 | R2 ModelRand | 1 extra explainer call | Same subset as R1       |
 | R3 HeadPerm  | 1 extra explainer call | Same subset as R1       |
@@ -979,7 +1131,7 @@ Symbol key: ✓ rewards compliance · ∼ partially sensitive · ✗ insensitive
 | L1 — mIoU              | ∼          | ✗ (T1)            | ✗             | ✗              |
 | L2 — Pointing Game     | ✗          | ✗ (T1)            | ✗             | ✗              |
 | L3 — EGT               | ✓ (T2)     | ✗ (T1)            | ✗             | ✗              |
-| L4 — Calibration Gap   | ✓          | ✗ (T1)            | ✗             | ✗              |
+| L4 — CLG               | ✓          | ✗ (T1)            | ✗             | ✗              |
 | R1 — Max-Sensitivity   | ✗          | ✗ (T1)            | ∼             | ✗              |
 | R2 — Model Rand.       | ⊗          | ✗ (T1)            | ✗             | ✗              |
 | R3 — Head Perm.        | ⊗          | ✗ (T1)            | ✗             | ✗              |
@@ -1317,12 +1469,49 @@ Key invariants:
 | --- | --------------------------- | -------------------------- | ------------------ | ------ | ------------------------------ |
 | E1  | `RawAttentionExplainer`     | Raw CLS attention          | `raw_attention.py` | ✗      | Last block, mean over heads    |
 | E2  | `AttentionRolloutExplainer` | Attention Rollout          | `rollout.py`       | ✗      | Recursive Â product            |
-| E3  | `GradCAMExplainer`          | GradCAM                    | `gradcam.py`       | ✓      | Hook-based, ReLU gated         |
+| E3  | `GradCAMExplainer`          | GradCAM                    | `gradcam.py`       | ✓      | Target layer: last block `norm1` (CLS ViTs), last stage (Swin); ReLU gated |
 | E4  | `CheferLRPExplainer`        | Chefer et al. LRP          | `chefer_lrp.py`    | ✗      | Pure-PyTorch reimplementation  |
 | E5  | `RISEExplainer`             | RISE (Petsiuk et al. 2018) | `rise.py`          | ✓      | 4000 float16 masks; chunked    |
 | E6  | `LIMEExplainer`             | LIME (patch-grid)          | `lime.py`          | ✓      | Ridge regression on P² patches |
 | E7  | `DIMEExplainer`             | DIME                       | `dime.py`          | —      | ⚠ Placeholder (see below)      |
-| E8  | `IntegratedGradientsExplainer` | Integrated Gradients    | `integrated_gradients.py` | ✓ | Optional; 50-step path, patch sums |
+| E8  | `IntegratedGradientsExplainer` | Integrated Gradients    | `integrated_gradients.py` | ✓ | Optional; 400-node Gauss–Legendre path integral, black baseline, patch sums |
+
+> [!IMPORTANT]
+> **GradCAM target layer (fixed 2026-11-19).** GradCAM previously hooked the *output* of the
+> last transformer block. On CLS-token ViTs the classifier reads only the CLS token from
+> that output (through a per-token LayerNorm), so the gradient w.r.t. every patch token is
+> exactly zero and the map collapsed to zero on six of seven models. It now hooks the last
+> block's `norm1` (the tokens the final attention mixes into the CLS token; the standard
+> pytorch-grad-cam ViT recipe); Swin keeps its last-stage feature map. Found by the
+> real-model smoke test (confirmed on real ViT-B/16: patch-token gradient 0.0 at the old
+> layer, 35.8 at `norm1`); regression test `test_gradcam_target_layer_receives_patch_gradients`.
+>
+> **Integrated Gradients quadrature (fixed 2026-11-19).** On real ViTs the path gradient from
+> the black baseline is extremely spiky near α = 0 (ViT-B/16: +2.2 at α = 0, −23.4 at
+> α = 0.02, smooth beyond ≈ 0.3; autograd matches finite differences). A uniform 50-step
+> trapezoid rule left completeness gaps of 28–146% that did not shrink monotonically with
+> more steps. IG now uses Gauss–Legendre quadrature (Captum's default) with 400 nodes:
+> ViT-B/16 0.5–2.2% at 200 nodes; DeiT-B needs 400 (9.4% → 0.0–0.2%). The smoke test checks
+> |gap| ≤ 5% · max(|Δf|, 1 logit) per model.
+>
+> **Real-weight smoke results (CPU, 2 synthetic images, RISE 300 masks, LIME 150 samples,
+> random 10-class heads, 2026-11-19).** ViT-B/16 73/73, DeiT-B 73/73, Swin-B 36/36 checks
+> pass. Open flags, recorded rather than tuned away: BEiT — RISE maps identical across the
+> two images (consistent with the input-invariant CLS output above and an untrained head);
+> DINOv2 — IG completeness gap 11% at 400 nodes; MAE — RISE target sensitivity advisory
+> (ρ = 0.999, untrained head). DINO ViT-B/8 was not run locally (CPU cost). All four are
+> re-checked on the server with real images and fine-tuned heads (`run_pilot.sh`).
+
+### 3.1.3 Real-model explainer smoke test
+
+`scripts/smoke_test_explainers.py` runs every model × explainer pair on real weights (or a
+fine-tuned checkpoint) for a few images and checks compatibility (Swin must refuse
+CLS-attention explainers), map shape, finiteness, non-degeneracy, determinism, input
+sensitivity, target sensitivity (class-specific methods must change with the target;
+raw attention / rollout must not), input-gradient validity, IG completeness (≤ 5%) and
+attention extraction for every block (shape, rows sum to 1). It writes `smoke_report.csv`,
+`smoke_summary.json` and one overlay grid per model (`<model>_maps.png`) for visual
+inspection, and exits non-zero on any failure. `run_pilot.sh` runs it before the pilot.
 
 **Effective method count.** The main matrix runs **six** explainers (E1–E6); E7 is a
 stub, so the benchmark does not claim seven. On Swin-B only E3, E5, E6 (and E8) apply.
@@ -1670,7 +1859,7 @@ vit-explainability-benchmark/
 | L1  | mIoU              | $\text{mean}_\tau \text{IoU}(\hat{M}_\tau, M^{GT})$                   | $[0,1]$      | `localization.py`  | Higher    |
 | L2  | Pointing Game     | $\mathbf{1}[p^* \in M^{GT}]$                                          | $\{0,1\}$    | `localization.py`  | Higher    |
 | L3  | EGT               | $\sum_{p \in M^{GT}} e^+_p / \sum_p e^+_p$                            | $[0,1]$      | `localization.py`  | Higher    |
-| L4  | CalibGap          | $\mathbb{E}[\text{EGT}\mid\text{correct}] - \mathbb{E}[\text{EGT}\mid\text{wrong}]$ | $(-1,1)$ | `aggregate.py` | Higher |
+| L4  | CLG               | class-mean of $\Delta_c$ = EGTlift(correct) − EGTlift(incorrect) | $(-1,1)$ | `aggregate.py` | Higher |
 | R1  | MaxSens           | $\max_k \lVert\phi(x+\delta_k)-\phi(x)\rVert_2 / \lVert\phi(x)\rVert_2$ | $[0,\infty)$ | `robustness.py`  | **Lower** |
 | R2  | ModelRand         | $1 - \text{SSIM}(\phi_\text{orig}, \phi_\text{rand})$                 | $[0,1]$      | `robustness.py`    | Higher    |
 | R3  | HeadPerm          | $1 - (\lvert\rho(\phi_\text{orig}, \phi_\text{perm})\rvert + 1)/2$    | $[0,0.5]$    | `robustness.py`    | Higher    |
@@ -1697,8 +1886,8 @@ higher is better; `--metrics adversarial`) and fidelity columns suffixed `[zero]
 ☑ ViT-B/16 wrapper — timm augreg_in21k, get_last_selfattention()
 ☑ DeiT-B/16 wrapper — CLS+distillation tokens documented
 ☑ Swin-B wrapper — GradCAM only; CLS limitation documented
-☑ BEiT-B/16 wrapper — MIM pre-training, standard attention
-☑ DINO-ViT-B/8 wrapper — torch.hub, 28×28 patch grid
+☑ BEiT-B/16 wrapper — timm in22k_ft_in22k (MIM + supervised IN-22K), rel-pos attention
+☑ DINO-ViT-B/8 wrapper — timm vit_base_patch8_224.dino (verified = official), 28×28 grid
 ☑ DINOv2-ViT-B/14 wrapper — 16×16 patch grid, timm/HF
 ☑ training/transforms.py — RandAugment M=9 N=2, random erasing
 ☑ training/mixup.py — α=0.8 batch Mixup
@@ -1720,7 +1909,7 @@ higher is better; `--metrics adversarial`) and fidelity columns suffixed `[zero]
 ☑ L1 formal definition: mIoU at τ ∈ {0.25, 0.50, 0.75}
 ☑ L2 formal definition: PG = 1[argmax_p e_p ∈ M_GT], tie-breaking seeded
 ☑ L3 formal definition: EGT = Σ_{p∈M_GT} e⁺_p / Σ_p e⁺_p (positive-mass fraction)
-☑ L4 formal definition: CalibGap = E[EGT|correct] − E[EGT|incorrect]
+☑ L4 formal definition: CLG = class-mean of [EGTlift|correct − EGTlift|incorrect] (renamed from CalibGap)
 ☑ LocalizationMetrics class — metrics/localization.py
 ☑ 12 unit tests — tests/test_localization.py — 12/12 passing
 ☑ BenchmarkRunner — metrics/runner.py

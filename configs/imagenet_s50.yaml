@@ -55,3 +55,6 @@ accum_steps:    1
 # and val top-1 is climbing before committing to full training.
 pilot_epochs:       5
 pilot_min_top1:     40.0   # conservative threshold for 50-class classification
+
+# Task formulation (utils/tasks.py): single-label, softmax.
+task: single

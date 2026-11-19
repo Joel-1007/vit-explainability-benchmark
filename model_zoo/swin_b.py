@@ -30,8 +30,11 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
-TIMM_ID    = "swin_base_patch4_window7_224.ms_in22k_ft_in1k"
+TIMM_ID = MODEL_SPECS["swin_b"].timm_id   # pinned in model_zoo/specs.py
 HF_REPO    = "microsoft/swin-base-patch4-window7-224"
 PATCH_SIZE = 4   # base patch; merged in stages
 
@@ -51,6 +54,8 @@ class SwinB(nn.Module):
 
     def __init__(self, num_classes: int = 0, pretrained: bool = True):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["swin_b"].mean, MODEL_SPECS["swin_b"].std)
         self.backbone = timm.create_model(
             TIMM_ID,
             pretrained=pretrained,
@@ -68,39 +73,9 @@ class SwinB(nn.Module):
 
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
-    # ------------------------------------------------------------------
-    def get_stage_feature_maps(self, x: torch.Tensor) -> list[torch.Tensor]:
-        """
-        Return the spatial feature maps after each Swin stage.
-        Useful for GradCAM — hook onto stage 3 (final stage) output.
 
-        Returns
-        -------
-        List of Tensors, one per stage, shape (B, H_i, W_i, C_i).
-        """
-        feature_maps = []
-
-        x = self.backbone.patch_embed(x)          # (B, H/4, W/4, C)
-        if self.backbone.ape:
-            x = x + self.backbone.absolute_pos_embed
-        x = self.backbone.pos_drop(x)
-
-        for layer in self.backbone.layers:
-            x = layer(x)
-            feature_maps.append(x)
-
-        return feature_maps   # 4 stages for Swin-B
-
-    # ------------------------------------------------------------------
-    @property
-    def grad_cam_target_layer(self) -> nn.Module:
-        """
-        Return the recommended target layer for GradCAM —
-        the last Swin stage (stage index 3).
-        """
-        return self.backbone.layers[-1]
 
 
 # ---------------------------------------------------------------------------

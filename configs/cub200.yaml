@@ -36,3 +36,6 @@ accum_steps:    1            # increase if GPU OOM (e.g. 4 → 64×4=256 effecti
 # Pilot sanity check threshold (§5.8)
 pilot_epochs:       5
 pilot_min_top1:     65.0     # minimum top-1 % required after 5 epochs
+
+# Task formulation (utils/tasks.py): single-label, softmax.
+task: single

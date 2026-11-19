@@ -20,9 +20,9 @@ re_prob:        0.25
 re_mode:        pixel
 re_count:       1
 interpolation:  bicubic
-mixup_alpha:    0.8
+mixup_alpha:    0.8          # MultiLabelMixup: mixes multi-hot labels, weight = product (training/mixup.py)
 cutmix_alpha:   0.0
-label_smoothing: 0.1
+label_smoothing: 0.0          # multi-label: no smoothing (training/loss.py)
 
 # Misc
 dropout:        0.0
@@ -34,3 +34,8 @@ accum_steps:    1
 # Pilot sanity check threshold (§5.8)
 pilot_epochs:       5
 pilot_min_top1:     75.0     # minimum top-1 % required after 5 epochs
+
+# Task formulation (utils/tasks.py): multi-label, sigmoid scores, per-class
+# thresholds estimated on the validation split after the final epoch.
+task: multi
+class_weighted_loss: false   # VOC: plain masked BCE (difficult-only classes ignored)

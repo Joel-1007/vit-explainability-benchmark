@@ -126,6 +126,13 @@ class BaseExplainer(ABC):
 # Shared internal helpers
 # ---------------------------------------------------------------------------
 
+def _candidates(model: nn.Module) -> list:
+    """The model itself, then its ``.backbone`` (model_zoo wrappers keep the
+    timm network there)."""
+    bb = getattr(model, "backbone", None)
+    return [model] + ([bb] if isinstance(bb, nn.Module) else [])
+
+
 def _get_timm_blocks(model: nn.Module) -> list:
     """
     Return the ordered list of transformer blocks from a timm-style ViT.
@@ -139,15 +146,16 @@ def _get_timm_blocks(model: nn.Module) -> list:
     AttributeError  if no block container is found.
     """
     _ATTRS = ("blocks", "layers", "encoder.layers")
-    for attr in _ATTRS:
-        obj = model
-        try:
-            for part in attr.split("."):
-                obj = getattr(obj, part)
-            if hasattr(obj, "__len__") and len(obj) > 0:
-                return list(obj)
-        except AttributeError:
-            continue
+    for root in _candidates(model):
+        for attr in _ATTRS:
+            obj = root
+            try:
+                for part in attr.split("."):
+                    obj = getattr(obj, part)
+                if hasattr(obj, "__len__") and len(obj) > 0:
+                    return list(obj)
+            except AttributeError:
+                continue
     raise AttributeError(
         f"Cannot locate transformer blocks on {type(model).__name__}. "
         f"Tried: {_ATTRS}.  Pass a timm ViT / DeiT / BEiT / DINO model."
@@ -155,8 +163,8 @@ def _get_timm_blocks(model: nn.Module) -> list:
 
 
 def _has_cls_token(model: nn.Module) -> bool:
-    """Return True if the model has a CLS token parameter."""
-    return hasattr(model, "cls_token")
+    """True if the model (or its wrapped ``.backbone``) has a CLS token."""
+    return any(getattr(m, "cls_token", None) is not None for m in _candidates(model))
 
 
 def _to_patch_grid(

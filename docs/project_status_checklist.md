@@ -20,7 +20,17 @@ Legend:
 | 1.2 | Model zoo: 6 ViT architectures selected | ✅ | `model_zoo/` — all 6 wrappers present |
 | 1.2 | Fine-tuning protocol document | ✅ | `BENCHMARK.md §1.2`, `training/` code |
 | 1.2 | Pilot fine-tune (5 epochs) | 🔶 | `scripts/pilot_finetune.py` scaffolded; needs GPU run |
-| 1.2 | Model hashes recorded | ✅ | `model_hashes.txt` committed |
+| 1.2 | Model hashes recorded | ✅ | Regenerated 2026-11-19 from `model_zoo/specs.py`: hashes the exact timm Hub files loaded (previous log hashed different HF Transformers artifacts) |
+| 1.2 | Real-weight loading verified | ✅ | `scripts/verify_model_zoo.py`: 7/7 models (SHA-256, strict load, token layout, attention capture); DINO timm = official (150/150 tensors). BEiT ID fixed to `in22k_ft_in22k` (MIM + supervised IN-22K) |
+| 3.1 | Real-model explainer smoke test | ✅ code / 🔶 real images | `scripts/smoke_test_explainers.py` (compatibility, shape, finite, non-degenerate, deterministic, input/target sensitivity, gradients, IG completeness, attention); run in `run_pilot.sh`. Found and fixed the GradCAM all-zero bug on CLS ViTs |
+| 3.1 | GradCAM target layer | ✅ | Fixed: last block `norm1` for CLS ViTs (old layer gave exactly zero patch gradients → all-zero maps on 6/7 models) |
+| 3.1 | IG quadrature | ✅ / ⚠️ | Gauss–Legendre, 400 nodes (uniform 50-step rule did not converge on real ViTs). DINOv2 gap 11% on synthetic images — re-check on server |
+| 1.2 | BEiT pooling | ✅ frozen | CLS-token head. Recorded diagnostic: BEiT CLS features near input-invariant (cos 0.9999 vs ViT 0.82); optional one-off `--beit-pool avg` fine-tune to report as a limitation, not a protocol switch |
+| 1.2 | Classifier pooling decision (BEiT mean-pool vs CLS) | ✅ | CLS-token head for every CLS-token model (BEiT: fc_norm carried to norm); verified on real weights |
+| 1.2 | Fine-tuning for all datasets | ✅ code / 🔶 GPU | `scripts/finetune.py`; multi-label VOC/NIH (masked BCE, multi-label Mixup, validation thresholds); final-epoch selection |
+| 1.3 | Multi-label formulation (VOC, NIH) | ✅ | `utils/tasks.py` used by fidelity, RISE, LIME, PGD, correctness; VOC (image, class) units; splits leakage-checked |
+| 2.2 | L4 audited and redefined | ✅ | Correctness-Conditional Localisation Gap (EGT lift, within-class, ≥10/side, bootstrap CI) + threshold-free Spearman companion |
+| 1.3 | Input protocol frozen (pixel space, in-model normalisation, 256→224 bicubic) | ✅ code / 🔶 real-data overlay check | `tests/test_pixel_protocol.py`; run `scripts/audit_datasets.py --overlays 8` on the server before fine-tuning |
 | 1.3 | Dataset plan with justification | ✅ | `BENCHMARK.md §1.3`, `configs/*.yaml` |
 | 1.3 | Download & verify all datasets | 🔶 | `scripts/verify_datasets.py` exists; needs data download |
 | 1.3 | CUB-200 part annotations verified | 🔶 | Requires dataset |

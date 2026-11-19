@@ -1,26 +1,48 @@
 """
 Model 4 — BEiT-B/16
-Architecture : BERT-style Masked Image Modelling ViT
-Pre-training  : Masked Image Modelling on IN-22K
-                (DALL-E discrete VAE token targets)
-Patch size    : 16 × 16
-Params        : ~86 M
-IN-1K Top-1   : 85.2 % (after downstream fine-tune)
+Architecture : ViT-B/16 with relative position bias and layer scale
+Pre-training : Self-supervised masked image modelling on ImageNet-22k
+               (DALL-E dVAE token targets), FOLLOWED BY supervised intermediate
+               fine-tuning on ImageNet-22k (21,841 classes) by the BEiT authors.
+Patch size   : 16 × 16
+Params       : ~86 M
 
-timm identifier (pre-train only) : beit_base_patch16_224.in22k
-HuggingFace  (pre-train only)    : microsoft/beit-base-patch16-224-pt22k
+timm identifier : beit_base_patch16_224.in22k_ft_in22k
+                  (HF Hub repo timm/beit_base_patch16_224.in22k_ft_in22k; ported
+                  from the official beit_base_patch16_224_pt22k_ft22k.pth)
 
-IMPORTANT — always load the pre-train-only checkpoint.
-            The already-fine-tuned checkpoint (beit_..._in22k_in1k)
-            must NOT be used as the starting point; your standardised
-            fine-tuning recipe is applied on top of pre-trained weights.
+Provenance note (paper)
+-----------------------
+The pure-MIM checkpoint (microsoft/beit-base-patch16-224-pt22k) is not
+distributed by timm. The only timm BEiT-B/16 weights include the supervised
+IN-22k stage, so BEiT must be described as "MIM + supervised IN-22k", NOT as a
+purely self-supervised model. The clean MIM-vs-supervised comparison is ablation
+A4 (MAE-B/16 vs ViT-B/16, same architecture). The 21,841-class IN-22k head is
+discarded; our fine-tuning attaches a new head.
+
+Classifier pooling (benchmark protocol)
+---------------------------------------
+timm's native BEiT head mean-pools the patch tokens. Here BEiT classifies from
+the CLS token like ViT, DINO, DINOv2 and MAE, so CLS-row attention explainers
+(E1, E2, E4) follow the model's decision pathway. The trained final LayerNorm
+is carried over (fc_norm → norm); the head is new in either case. This is a
+deviation from BEiT's own fine-tuning recipe, reported in the paper.
+
+CLS-token caveat (measured on the real weights, 2026-11-19): BEiT's pre-trained
+CLS output is nearly input-invariant — mean cosine similarity of CLS features
+across different images 0.9999 (ViT-B/16: 0.82), while mean-pooled patch
+features vary (0.94). Its supervised stage mean-pooled, so the CLS token never
+had to carry image information; with a CLS head, fine-tuning must learn to
+route it there. The protocol is frozen on the CLS head. ``global_pool="avg"``
+(native head) exists only for a one-off, recorded diagnostic
+(``scripts/finetune.py --beit-pool avg``); it does not change the protocol.
 
 Explainability note
 -------------------
-Standard CLS-token architecture identical to ViT-B/16.
-All attention-based methods apply directly.
-The discrete-token MIM objective may produce more semantically
-structured representations than pixel-reconstruction MAE.
+CLS-token architecture (1 prefix token, 14×14 patch grid); attention includes
+a per-block relative position bias. Attention-based explainers capture the
+post-softmax weights through timm's ``attn_drop`` hook (verified in
+scripts/verify_model_zoo.py).
 """
 
 from __future__ import annotations
@@ -29,17 +51,36 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
-TIMM_ID_PRETRAIN = "beit_base_patch16_224.in22k"           # pre-train only ✓
-TIMM_ID_FINETUNED = "beit_base_patch16_224.in22k_ft_in22k_in1k"  # reference only
-HF_REPO_PRETRAIN  = "microsoft/beit-base-patch16-224-pt22k"
+TIMM_ID    = MODEL_SPECS["beit_b16"].timm_id
 PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196
 
 
+def _token_pool_state_dict(num_classes: int) -> dict:
+    """
+    Pre-trained weights for a CLS-token-pooled BEiT.
+
+    timm's native BEiT head mean-pools patch tokens and applies ``fc_norm``;
+    with ``global_pool="token"`` the final LayerNorm is ``norm`` instead and
+    timm would drop the trained ``fc_norm`` and leave ``norm`` at its default
+    initialisation. We carry the trained LayerNorm parameters over
+    (``fc_norm.*`` → ``norm.*``) so only the pooled token changes. The
+    classification head is newly initialised by fine-tuning in either case.
+    """
+    native = timm.create_model(TIMM_ID, pretrained=True, num_classes=num_classes)
+    sd = native.state_dict()
+    for p in ("weight", "bias"):
+        sd[f"norm.{p}"] = sd.pop(f"fc_norm.{p}")
+    return sd
+
+
 class BEiTB16(nn.Module):
     """
-    Wrapper for BEiT-B/16 (pre-train checkpoint only).
+    Wrapper for BEiT-B/16 (timm ``beit_base_patch16_224.in22k_ft_in22k``).
 
     Parameters
     ----------
@@ -47,84 +88,54 @@ class BEiTB16(nn.Module):
         0  → return CLS-token features (dim=768).
         >0 → attach linear classification head.
     pretrained : bool
-        Load IN-22K pre-trained weights (NOT the fine-tuned version).
+        Load the MIM + supervised IN-22k weights (see module provenance note).
     """
 
-    def __init__(self, num_classes: int = 0, pretrained: bool = True):
+    def __init__(self, num_classes: int = 0, pretrained: bool = True,
+                 global_pool: str = "token"):
         super().__init__()
-        self.backbone = timm.create_model(
-            TIMM_ID_PRETRAIN,
-            pretrained=pretrained,
-            num_classes=num_classes,
-        )
+        if global_pool not in ("token", "avg"):
+            raise ValueError(f"global_pool must be 'token' or 'avg', got {global_pool!r}")
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["beit_b16"].mean, MODEL_SPECS["beit_b16"].std)
+        # Frozen protocol: classify from the CLS token (the token CLS-row
+        # explainers explain). "avg" = BEiT's native mean-pooled head, for the
+        # one-off recorded diagnostic only (see module docstring).
+        self.global_pool = global_pool
+        if global_pool == "avg":
+            self.backbone = timm.create_model(TIMM_ID, pretrained=pretrained, num_classes=num_classes)
+        else:
+            self.backbone = timm.create_model(
+                TIMM_ID, pretrained=False, num_classes=num_classes, global_pool="token",
+            )
+            if pretrained:
+                self.backbone.load_state_dict(_token_pool_state_dict(num_classes), strict=True)
         self.num_classes = num_classes
         self.patch_size  = PATCH_SIZE
         self.embed_dim   = self.backbone.embed_dim   # 768
 
     # ------------------------------------------------------------------
-    def reset_classifier(self, num_classes: int) -> None:
+    def reset_classifier(self, num_classes: int) -> None:  # keeps CLS-token pooling
         self.backbone.reset_classifier(num_classes)
         self.num_classes = num_classes
 
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
-    # ------------------------------------------------------------------
-    def get_last_selfattention(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Return attention weights from the final transformer block.
-
-        Returns
-        -------
-        attn : Tensor, shape (B, num_heads, N+1, N+1)
-            Index 0 = CLS token.
-        """
-        # BEiT uses relative position bias; timm handles this internally.
-        x = self.backbone.patch_embed(x)
-        cls_token = self.backbone.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_token, x), dim=1)
-
-        # BEiT does NOT use a learned pos embed on input (uses rel-pos bias)
-        x = self.backbone.pos_drop(x)
-
-        attn = None
-        for i, blk in enumerate(self.backbone.blocks):
-            if i < len(self.backbone.blocks) - 1:
-                x = blk(x)
-            else:
-                x_norm = blk.norm1(x)
-                B, N, C = x_norm.shape
-                head_dim = C // blk.attn.num_heads
-                qkv = blk.attn.qkv(x_norm).reshape(
-                    B, N, 3, blk.attn.num_heads, head_dim
-                ).permute(2, 0, 3, 1, 4)
-                q, k, _ = qkv.unbind(0)
-                scale = head_dim ** -0.5
-                attn = (q @ k.transpose(-2, -1)) * scale
-                # BEiT adds relative position bias
-                if hasattr(blk.attn, "get_rel_pos_bias"):
-                    attn = attn + blk.attn.get_rel_pos_bias()
-                attn = attn.softmax(dim=-1)
-        return attn   # (B, H, N+1, N+1)
 
 
 # ---------------------------------------------------------------------------
-def load_beit_b16(num_classes: int = 0, pretrained: bool = True) -> BEiTB16:
+def load_beit_b16(num_classes: int = 0, pretrained: bool = True,
+                  global_pool: str = "token") -> BEiTB16:
     """
-    Load BEiT-B/16 pre-train-only checkpoint.
+    Load BEiT-B/16 (MIM + supervised IN-22k weights, see module docstring).
 
     Parameters
     ----------
     num_classes : int
         Downstream classification classes (0 = feature extractor).
     pretrained : bool
-        Load IN-22K pre-trained (MIM) weights.
+        Load pre-trained weights.
     """
-    return BEiTB16(num_classes=num_classes, pretrained=pretrained)
-
-
-def load_beit_b16_hf():
-    """Load BEiT-B/16 pre-train weights via HuggingFace Transformers."""
-    from transformers import BeitModel
-    return BeitModel.from_pretrained(HF_REPO_PRETRAIN)
+    return BEiTB16(num_classes=num_classes, pretrained=pretrained, global_pool=global_pool)
