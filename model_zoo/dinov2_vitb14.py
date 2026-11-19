@@ -29,10 +29,12 @@ import timm
 import torch
 import torch.nn as nn
 
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
 HF_REPO        = "facebook/dinov2-base"
 HF_REPO_REG    = "facebook/dinov2-with-registers-base"   # avoid — see note
-TIMM_ID        = "vit_base_patch14_dinov2.lvd142m"
+TIMM_ID = MODEL_SPECS["dinov2_vitb14"].timm_id   # pinned in model_zoo/specs.py
 PATCH_SIZE     = 14
 N_PATCHES      = (224 // PATCH_SIZE) ** 2   # 256
 

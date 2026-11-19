@@ -94,6 +94,6 @@ Our benchmark evaluates 7 post-hoc explainers: Raw Attention, Attention Rollout,
     \item \textbf{PASCAL VOC 2012}: Multi-label configurations mapping precise object localization maps targeting bounding alignments.
     \item \textbf{NIH Chest X-ray 14}: High sensitivity biomedical application, enforcing non-centric pathology recognition.
 \end{itemize}
-Evaluation models uniformly represent standard state-of-the-art pipelines generating 16x16 / 14x14 tokens including timm augmentation baselines, distilled instances, shifting windows setups, and DINO implementations (ViT-B/16, DeiT-B, Swin-B, BEiT-B, DINO, DINOv2). 
+Six ViT-B-scale backbones are evaluated, all loaded from the timm model hub with SHA-256-verified weights: ViT-B/16 (supervised ImageNet-21k, AugReg), DeiT-B/16 distilled (supervised ImageNet-1k with a convolutional teacher), Swin-B (supervised ImageNet-22k then ImageNet-1k), BEiT-B/16 (masked image modelling on ImageNet-22k \emph{followed by supervised ImageNet-22k fine-tuning}), DINO ViT-B/8 (self-supervised, ImageNet-1k) and DINOv2 ViT-B/14 (self-supervised, LVD-142M). At $224\times224$ input these yield patch grids of $14\times14$ (ViT, DeiT, BEiT), $28\times28$ (DINO), $16\times16$ (DINOv2) and a $7\times7$ final feature map (Swin-B). MAE ViT-B/16 (self-supervised, ImageNet-1k) is used only in the pre-training ablation. 
 
 \end{document}

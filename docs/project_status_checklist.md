@@ -20,7 +20,9 @@ Legend:
 | 1.2 | Model zoo: 6 ViT architectures selected | ✅ | `model_zoo/` — all 6 wrappers present |
 | 1.2 | Fine-tuning protocol document | ✅ | `BENCHMARK.md §1.2`, `training/` code |
 | 1.2 | Pilot fine-tune (5 epochs) | 🔶 | `scripts/pilot_finetune.py` scaffolded; needs GPU run |
-| 1.2 | Model hashes recorded | ✅ | `model_hashes.txt` committed |
+| 1.2 | Model hashes recorded | ✅ | Regenerated 2026-11-19 from `model_zoo/specs.py`: hashes the exact timm Hub files loaded (previous log hashed different HF Transformers artifacts) |
+| 1.2 | Real-weight loading verified | ✅ | `scripts/verify_model_zoo.py`: 7/7 models (SHA-256, strict load, token layout, attention capture); DINO timm = official (150/150 tensors). BEiT ID fixed to `in22k_ft_in22k` (MIM + supervised IN-22K) |
+| 1.2 | Classifier pooling decision (BEiT mean-pool vs CLS) | ❓ | Needs decision — see stage 1 report |
 | 1.3 | Dataset plan with justification | ✅ | `BENCHMARK.md §1.3`, `configs/*.yaml` |
 | 1.3 | Download & verify all datasets | 🔶 | `scripts/verify_datasets.py` exists; needs data download |
 | 1.3 | CUB-200 part annotations verified | 🔶 | Requires dataset |

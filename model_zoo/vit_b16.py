@@ -22,10 +22,12 @@ import timm
 import torch
 import torch.nn as nn
 
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-TIMM_ID   = "vit_base_patch16_224.augreg_in21k"
+TIMM_ID = MODEL_SPECS["vit_b16"].timm_id   # pinned in model_zoo/specs.py
 HF_REPO   = "google/vit-base-patch16-224-in21k"
 PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196

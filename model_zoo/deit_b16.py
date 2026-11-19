@@ -6,7 +6,7 @@ Patch size    : 16 × 16
 Params        : ~87 M
 IN-1K Top-1   : 83.4 %
 
-timm identifier : deit_base_distilled_patch16_224
+timm identifier : deit_base_distilled_patch16_224.fb_in1k
 HuggingFace     : facebook/deit-base-distilled-patch16-224
 
 Explainability note
@@ -24,10 +24,12 @@ import timm
 import torch
 import torch.nn as nn
 
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
-TIMM_ID    = "deit_base_distilled_patch16_224"
+TIMM_ID = MODEL_SPECS["deit_b16"].timm_id   # pinned in model_zoo/specs.py
 HF_REPO    = "facebook/deit-base-distilled-patch16-224"
 PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196

@@ -30,8 +30,10 @@ import timm
 import torch
 import torch.nn as nn
 
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
-TIMM_ID    = "swin_base_patch4_window7_224.ms_in22k_ft_in1k"
+TIMM_ID = MODEL_SPECS["swin_b"].timm_id   # pinned in model_zoo/specs.py
 HF_REPO    = "microsoft/swin-base-patch4-window7-224"
 PATCH_SIZE = 4   # base patch; merged in stages
 

@@ -53,15 +53,42 @@ to architecture, not training conditions.
 | #   | Model               | Architecture     | Pre-training                 | Patch | Params | IN-1K Top-1   | timm ID                                         |
 | --- | ------------------- | ---------------- | ---------------------------- | ----- | ------ | ------------- | ----------------------------------------------- |
 | 1   | **ViT-B/16**        | Standard ViT     | Supervised IN-21K (AugReg)   | 16    | 86 M   | 84.2 %        | `vit_base_patch16_224.augreg_in21k`             |
-| 2   | **DeiT-B/16**       | DeiT (distilled) | Knowledge distillation IN-1K | 16    | 87 M   | 83.4 %        | `deit_base_distilled_patch16_224`               |
+| 2   | **DeiT-B/16**       | DeiT (distilled) | Knowledge distillation IN-1K | 16    | 87 M   | 83.4 %        | `deit_base_distilled_patch16_224.fb_in1k`       |
 | 3   | **Swin-B**          | Shifted-window   | Supervised IN-22K → IN-1K    | 4     | 88 M   | 85.2 %        | `swin_base_patch4_window7_224.ms_in22k_ft_in1k` |
-| 4   | **BEiT-B/16**       | BERT-style MIM   | MIM IN-22K (DALL-E dVAE)     | 16    | 86 M   | 85.2 %        | `beit_base_patch16_224.in22k` (pre-train only)  |
-| 5   | **DINO-ViT-B/8**    | Standard ViT     | Self-distillation IN-1K      | 8     | 85 M   | 80.1 % (k-NN) | torch.hub `facebookresearch/dino`               |
+| 4   | **BEiT-B/16**       | BERT-style MIM   | MIM IN-22K **+ supervised IN-22K fine-tune** | 16 | 86 M | 85.2 % | `beit_base_patch16_224.in22k_ft_in22k`  |
+| 5   | **DINO-ViT-B/8**    | Standard ViT     | Self-distillation IN-1K      | 8     | 85 M   | 80.1 % (k-NN) | `vit_base_patch8_224.dino`                      |
 | 6   | **DINOv2-ViT-B/14** | Standard ViT     | Self-distillation LVD-142M   | 14    | 86 M   | 86.5 %        | `vit_base_patch14_dinov2.lvd142m`               |
 | A4  | MAE-ViT-B/16        | Standard ViT     | Masked autoencoder IN-1K     | 16    | 86 M   | —             | `vit_base_patch16_224.mae` (ablation A4 only)   |
 
 IN-1K Top-1 is the published accuracy of each architecture/pre-training, for reference;
-the benchmark loads the IDs above (matching `model_zoo/`) and fine-tunes them per dataset.
+the benchmark loads the IDs above and fine-tunes them per dataset. **Identity and
+provenance have one source of truth, `model_zoo/specs.py`**; every weight file comes
+from the HF Hub repo `timm/<timm ID>` and its SHA-256 is logged in `model_hashes.txt`
+(`scripts/record_model_hashes.py`).
+
+> [!IMPORTANT]
+> **Pre-training provenance (report exactly this in the paper).**
+> - **BEiT-B/16** weights include a *supervised* stage: MIM pre-training on IN-22K followed
+>   by supervised intermediate fine-tuning on IN-22K (21,841 classes) by the BEiT authors
+>   (`beit_base_patch16_224_pt22k_ft22k.pth`). timm does not distribute the pure-MIM
+>   checkpoint, and the previous identifier `beit_base_patch16_224.in22k` does not exist.
+>   BEiT is therefore *not* a purely self-supervised model here; MIM vs supervised
+>   pre-training is isolated by ablation A4 (MAE vs ViT-B/16).
+> - **DINO ViT-B/8** is loaded through timm (`vit_base_patch8_224.dino`), not PyTorch Hub.
+>   `scripts/verify_model_zoo.py --compare-dino-official` verified that its 150 tensors are
+>   bit-identical to the official `dino_vitbase8_pretrain.pth` (2026-11-19).
+> - **ViT-B/16** is the AugReg IN-21K checkpoint (Steiner et al., 2022), not the original
+>   `google/vit-base-patch16-224-in21k` release.
+>
+> **Verified loading (2026-11-19, timm 1.0.31).** `scripts/verify_model_zoo.py` loads all
+> seven checkpoints with real weights and checks: SHA-256 = published hash, strict load,
+> token layout (ViT/BEiT/MAE 1+14², DeiT 2+14², DINO 1+28², DINOv2 1+16², Swin 7×7×1024
+> map), and post-softmax attention capture (rows sum to 1; Swin unsupported as expected).
+>
+> **Classifier pooling differs.** ViT, DeiT (CLS + distillation heads, averaged), DINO,
+> DINOv2 and MAE classify from the CLS token; **BEiT's native head mean-pools the patch
+> tokens** and Swin mean-pools its final feature map. CLS-row attention explainers (E1, E2,
+> E4) therefore do not follow BEiT's decision pathway — see §1.1 pooling decision.
 MAE-ViT-B/16 is not part of the main matrix; it is the supervised-vs-MAE comparison of
 ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable).
 
@@ -69,7 +96,7 @@ ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable
 
 | Axis            | Values represented                                                    |
 | --------------- | --------------------------------------------------------------------- |
-| Supervision     | Supervised (ViT, DeiT, Swin), Self-supervised (BEiT MIM, DINO, DINOv2; MAE in A4) |
+| Supervision     | Supervised (ViT, DeiT, Swin), Self-supervised (DINO, DINOv2; MAE in A4), MIM + supervised (BEiT) |
 | Attention scope | Global (ViT, DeiT, BEiT, DINO, DINOv2), Local-window (Swin)           |
 | Patch size      | 8 (DINO), 14 (DINOv2), 16 (ViT/DeiT/BEiT), 32 (window-merged in Swin) |
 | Special tokens  | CLS only (ViT/BEiT/DINO/DINOv2), CLS+Distil (DeiT), None (Swin)       |
@@ -1725,8 +1752,8 @@ higher is better; `--metrics adversarial`) and fidelity columns suffixed `[zero]
 ☑ ViT-B/16 wrapper — timm augreg_in21k, get_last_selfattention()
 ☑ DeiT-B/16 wrapper — CLS+distillation tokens documented
 ☑ Swin-B wrapper — GradCAM only; CLS limitation documented
-☑ BEiT-B/16 wrapper — MIM pre-training, standard attention
-☑ DINO-ViT-B/8 wrapper — torch.hub, 28×28 patch grid
+☑ BEiT-B/16 wrapper — timm in22k_ft_in22k (MIM + supervised IN-22K), rel-pos attention
+☑ DINO-ViT-B/8 wrapper — timm vit_base_patch8_224.dino (verified = official), 28×28 grid
 ☑ DINOv2-ViT-B/14 wrapper — 16×16 patch grid, timm/HF
 ☑ training/transforms.py — RandAugment M=9 N=2, random erasing
 ☑ training/mixup.py — α=0.8 batch Mixup

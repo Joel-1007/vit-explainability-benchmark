@@ -1,6 +1,7 @@
 """
 model_zoo — Task 1.2
-Six pre-trained backbones for the ViT Explainability Benchmark.
+Six pre-trained backbones (+ MAE for ablation A4) for the ViT Explainability
+Benchmark. Identity and provenance of every checkpoint: model_zoo/specs.py.
 
 Exports
 -------
@@ -9,6 +10,7 @@ load_beit_b16, load_dino_vitb8, load_dinov2_vitb14,
 load_model   (dispatcher)
 """
 
+from .specs        import MODEL_SPECS, ModelSpec
 from .vit_b16      import load_vit_b16
 from .deit_b16     import load_deit_b16
 from .swin_b       import load_swin_b
@@ -53,4 +55,5 @@ def load_model(name: str, num_classes: int = 0, **kwargs):
     return registry[name](num_classes=num_classes, **kwargs)
 
 
-__all__ = list(MODEL_REGISTRY.keys()) + ["load_mae_b16", "load_model", "MODEL_REGISTRY", "ABLATION_MODEL_REGISTRY"]
+__all__ = list(MODEL_REGISTRY.keys()) + ["load_mae_b16", "load_model", "MODEL_REGISTRY",
+                                          "ABLATION_MODEL_REGISTRY", "MODEL_SPECS", "ModelSpec"]

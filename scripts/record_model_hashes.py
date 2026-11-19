@@ -2,27 +2,23 @@
 """
 record_model_hashes.py  —  Task 1.2 §6.4
 =========================================
-Run ONCE immediately after downloading all six pre-trained checkpoints
-and BEFORE any fine-tuning begins.
+Writes ``model_hashes.txt``: the exact pre-trained artifact behind every
+model the benchmark loads, taken from ``model_zoo/specs.py``.
 
-Writes two files:
-  model_hashes.txt  — SHA-256 + HuggingFace commit SHA for all checkpoints
-  (committed verbatim into the paper's implementation-details appendix)
+For each model it records the timm HF Hub repo (``timm/<timm_id>``), the
+pinned commit, the weight file, its size and its SHA-256. By default the
+SHA-256 is the LFS hash published by the Hub (no download). With
+``--download`` every file is fetched and hashed locally, and the local hash
+must equal the published one.
+
+Previous versions hashed HuggingFace *Transformers* repos (e.g.
+google/vit-base-patch16-224-in21k, microsoft/beit-base-patch16-224-pt22k) and
+a torch.hub DINO model — different artifacts from the timm weights the code
+actually loads. This version hashes what is loaded.
 
 Usage
 -----
-    python scripts/record_model_hashes.py [--out model_hashes.txt]
-
-Requirements
-------------
-    pip install huggingface_hub torch
-
-Notes
------
-• For HF checkpoints the script first tries model.safetensors, then
-  pytorch_model.bin (some repos have migrated to safetensors).
-• DINO-ViT-B/8 is loaded via torch.hub, its state_dict is saved to a
-  temporary file, hashed, and the temp file is deleted immediately.
+    python scripts/record_model_hashes.py [--out model_hashes.txt] [--download]
 """
 
 from __future__ import annotations
@@ -32,194 +28,80 @@ import datetime
 import hashlib
 import os
 import sys
-import tempfile
 
-import torch
-from huggingface_hub import hf_hub_download, model_info
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+from model_zoo.specs import MODEL_SPECS  # noqa: E402
 
-# ---------------------------------------------------------------------------
-# Checkpoint manifest
-# ---------------------------------------------------------------------------
-# Each entry: (model_display_name, repo_id, preferred_filename, fallback_filename)
-HF_CHECKPOINTS = [
-    (
-        "ViT-B/16 (augreg IN-21K)",
-        "google/vit-base-patch16-224-in21k",
-        "model.safetensors",
-        "pytorch_model.bin",
-    ),
-    (
-        "DeiT-B/16 distilled (IN-1K)",
-        "facebook/deit-base-distilled-patch16-224",
-        "model.safetensors",
-        "pytorch_model.bin",
-    ),
-    (
-        "Swin-B (IN-22K→IN-1K)",
-        "microsoft/swin-base-patch4-window7-224",
-        "model.safetensors",
-        "pytorch_model.bin",
-    ),
-    (
-        "BEiT-B/16 pre-train (IN-22K)",
-        "microsoft/beit-base-patch16-224-pt22k",
-        "model.safetensors",
-        "pytorch_model.bin",
-    ),
-    (
-        "DINOv2-ViT-B/14 (LVD-142M)",
-        "facebook/dinov2-base",
-        "model.safetensors",
-        "pytorch_model.bin",
-    ),
-]
+WEIGHT_FILES = ("model.safetensors", "pytorch_model.bin")
 
-
-# ---------------------------------------------------------------------------
-# Utilities
-# ---------------------------------------------------------------------------
 
 def sha256_file(path: str) -> str:
-    """Stream a file and return its SHA-256 hex digest."""
     h = hashlib.sha256()
     with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
+        for chunk in iter(lambda: f.read(1 << 20), b""):
             h.update(chunk)
     return h.hexdigest()
 
 
-def _try_hf_download(repo_id: str, preferred: str, fallback: str) -> tuple[str, str]:
-    """
-    Try to download preferred filename; fall back to fallback on error.
-    Returns (local_path, filename_used).
-    """
-    for fname in (preferred, fallback):
-        try:
-            local = hf_hub_download(repo_id=repo_id, filename=fname)
-            return local, fname
-        except Exception:
-            continue
-    raise RuntimeError(
-        f"Could not download '{preferred}' or '{fallback}' from {repo_id}"
-    )
+def published_weights(repo: str) -> dict:
+    """Commit, file name, size and LFS SHA-256 of the repo's weight file."""
+    from huggingface_hub import model_info
+
+    info = model_info(repo, files_metadata=True)
+    files = {s.rfilename: s for s in info.siblings}
+    for name in WEIGHT_FILES:
+        if name in files:
+            s = files[name]
+            return {"repo": repo, "commit": info.sha, "file": name, "size": s.size,
+                    "sha256": s.lfs.sha256 if s.lfs else None}
+    raise RuntimeError(f"{repo}: no weight file among {WEIGHT_FILES}")
 
 
-def _hf_commit_sha(repo_id: str) -> str:
-    try:
-        info = model_info(repo_id)
-        return info.sha or "unknown"
-    except Exception:
-        return "unknown"
+def main(argv=None) -> int:
+    p = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    p.add_argument("--out", default="model_hashes.txt")
+    p.add_argument("--download", action="store_true",
+                   help="Download each file and verify its local SHA-256.")
+    args = p.parse_args(argv)
 
-
-def _write(log_path: str, text: str) -> None:
-    with open(log_path, "a") as f:
-        f.write(text)
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
-
-def main(output_log: str = "model_hashes.txt") -> None:
-    sep = "=" * 60
-
-    # Initialise log
-    with open(output_log, "w") as f:
-        f.write("ViT Explainability Benchmark — Pre-trained Model Hash Log\n")
-        f.write(f"Generated : {datetime.datetime.now().isoformat()}\n")
-        f.write(f"Purpose   : Task 1.2 §6.4 — Reproducibility record\n")
-        f.write(f"{sep}\n\n")
-
-    print(f"[record_model_hashes] Writing to: {output_log}\n")
-
-    # ---------------------------------------------------------------
-    # 1. HuggingFace checkpoints
-    # ---------------------------------------------------------------
-    for display_name, repo_id, preferred, fallback in HF_CHECKPOINTS:
-        print(f"  →  {display_name}  ({repo_id})")
-        try:
-            local_path, fname_used = _try_hf_download(repo_id, preferred, fallback)
-            sha   = sha256_file(local_path)
-            commit = _hf_commit_sha(repo_id)
-
-            entry = (
-                f"Model      : {display_name}\n"
-                f"Repo       : {repo_id}\n"
-                f"File       : {fname_used}\n"
-                f"SHA-256    : {sha}\n"
-                f"HF Commit  : {commit}\n"
-                f"Local path : {local_path}\n"
-                f"Date       : {datetime.datetime.now().isoformat()}\n"
-                f"{sep}\n\n"
-            )
-            _write(output_log, entry)
-            print(f"     ✓  SHA-256: {sha[:24]}...\n")
-
-        except Exception as exc:
-            error_entry = (
-                f"Model      : {display_name}\n"
-                f"Repo       : {repo_id}\n"
-                f"ERROR      : {exc}\n"
-                f"{sep}\n\n"
-            )
-            _write(output_log, error_entry)
-            print(f"     ✗  ERROR: {exc}\n", file=sys.stderr)
-
-    # ---------------------------------------------------------------
-    # 2. DINO-ViT-B/8 via PyTorch Hub
-    # ---------------------------------------------------------------
-    print("  →  DINO-ViT-B/8  (torch.hub 'facebookresearch/dino:main')")
-    try:
-        dino = torch.hub.load(
-            "facebookresearch/dino:main",
-            "dino_vitb8",
-            pretrained=True,
-            verbose=False,
+    sep = "=" * 72
+    lines = [
+        "ViT Explainability Benchmark — Pre-trained Model Hash Log",
+        f"Generated : {datetime.datetime.now().isoformat(timespec='seconds')}",
+        "Source    : model_zoo/specs.py (the timm identifiers the code loads)",
+        f"Mode      : {'downloaded + locally hashed' if args.download else 'published HF Hub LFS SHA-256 (not downloaded)'}",
+        sep, "",
+    ]
+    failed = False
+    for spec in MODEL_SPECS.values():
+        rec = published_weights(spec.hf_repo)
+        local = ""
+        if args.download:
+            from huggingface_hub import hf_hub_download
+            path = hf_hub_download(spec.hf_repo, rec["file"], revision=rec["commit"])
+            digest = sha256_file(path)
+            ok = digest == rec["sha256"]
+            failed |= not ok
+            local = f"Local SHA  : {digest}  ({'MATCH' if ok else 'MISMATCH'})\n"
+        lines.append(
+            f"Model      : {spec.display}  [{spec.name}]{'  (ablation A4 only)' if not spec.main_matrix else ''}\n"
+            f"timm ID    : {spec.timm_id}\n"
+            f"Repo       : {rec['repo']}\n"
+            f"Commit     : {rec['commit']}\n"
+            f"File       : {rec['file']}  ({rec['size']:,} bytes)\n"
+            f"SHA-256    : {rec['sha256']}\n"
+            f"{local}"
+            f"Pretraining: {spec.pretraining}\n"
+            f"Reference  : {spec.reference}\n"
+            f"{sep}\n"
         )
-        with tempfile.NamedTemporaryFile(suffix=".pth", delete=False) as tmp:
-            torch.save(dino.state_dict(), tmp.name)
-            tmp_path = tmp.name
-
-        sha = sha256_file(tmp_path)
-        os.unlink(tmp_path)
-
-        entry = (
-            f"Model      : DINO-ViT-B/8\n"
-            f"Source     : torch.hub.load('facebookresearch/dino:main', 'dino_vitb8')\n"
-            f"GitHub     : https://github.com/facebookresearch/dino\n"
-            f"Direct URL : https://dl.fbaipublicfiles.com/dino/dino_vitbase8_pretrain/dino_vitbase8_pretrain.pth\n"
-            f"SHA-256    : {sha}\n"
-            f"Note       : Hash is of the state_dict saved to a temp file; \n"
-            f"             re-run to verify consistency.\n"
-            f"Date       : {datetime.datetime.now().isoformat()}\n"
-            f"{sep}\n\n"
-        )
-        _write(output_log, entry)
-        print(f"     ✓  SHA-256: {sha[:24]}...\n")
-
-    except Exception as exc:
-        error_entry = (
-            f"Model      : DINO-ViT-B/8\n"
-            f"ERROR      : {exc}\n"
-            f"{sep}\n\n"
-        )
-        _write(output_log, error_entry)
-        print(f"     ✗  ERROR: {exc}\n", file=sys.stderr)
-
-    print(f"[record_model_hashes] Done.  All hashes saved to: {output_log}")
+        print(f"  {spec.name:<14} {rec['sha256']}")
+    with open(args.out, "w") as f:
+        f.write("\n".join(lines))
+    print(f"Wrote {args.out}")
+    return 1 if failed else 0
 
 
-# ---------------------------------------------------------------------------
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(
-        description="Record SHA-256 hashes of all pre-trained checkpoints (Task 1.2 §6.4)"
-    )
-    parser.add_argument(
-        "--out",
-        default="model_hashes.txt",
-        help="Output log file path (default: model_hashes.txt)",
-    )
-    args = parser.parse_args()
-    main(output_log=args.out)
+    sys.exit(main())

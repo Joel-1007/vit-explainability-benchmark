@@ -1,26 +1,31 @@
 """
 Model 4 — BEiT-B/16
-Architecture : BERT-style Masked Image Modelling ViT
-Pre-training  : Masked Image Modelling on IN-22K
-                (DALL-E discrete VAE token targets)
-Patch size    : 16 × 16
-Params        : ~86 M
-IN-1K Top-1   : 85.2 % (after downstream fine-tune)
+Architecture : ViT-B/16 with relative position bias and layer scale
+Pre-training : Self-supervised masked image modelling on ImageNet-22k
+               (DALL-E dVAE token targets), FOLLOWED BY supervised intermediate
+               fine-tuning on ImageNet-22k (21,841 classes) by the BEiT authors.
+Patch size   : 16 × 16
+Params       : ~86 M
 
-timm identifier (pre-train only) : beit_base_patch16_224.in22k
-HuggingFace  (pre-train only)    : microsoft/beit-base-patch16-224-pt22k
+timm identifier : beit_base_patch16_224.in22k_ft_in22k
+                  (HF Hub repo timm/beit_base_patch16_224.in22k_ft_in22k; ported
+                  from the official beit_base_patch16_224_pt22k_ft22k.pth)
 
-IMPORTANT — always load the pre-train-only checkpoint.
-            The already-fine-tuned checkpoint (beit_..._in22k_in1k)
-            must NOT be used as the starting point; your standardised
-            fine-tuning recipe is applied on top of pre-trained weights.
+Provenance note (paper)
+-----------------------
+The pure-MIM checkpoint (microsoft/beit-base-patch16-224-pt22k) is not
+distributed by timm. The only timm BEiT-B/16 weights include the supervised
+IN-22k stage, so BEiT must be described as "MIM + supervised IN-22k", NOT as a
+purely self-supervised model. The clean MIM-vs-supervised comparison is ablation
+A4 (MAE-B/16 vs ViT-B/16, same architecture). The 21,841-class IN-22k head is
+discarded; our fine-tuning attaches a new head.
 
 Explainability note
 -------------------
-Standard CLS-token architecture identical to ViT-B/16.
-All attention-based methods apply directly.
-The discrete-token MIM objective may produce more semantically
-structured representations than pixel-reconstruction MAE.
+CLS-token architecture (1 prefix token, 14×14 patch grid); attention includes
+a per-block relative position bias. Attention-based explainers capture the
+post-softmax weights through timm's ``attn_drop`` hook (verified in
+scripts/verify_model_zoo.py).
 """
 
 from __future__ import annotations
@@ -29,17 +34,17 @@ import timm
 import torch
 import torch.nn as nn
 
+from .specs import MODEL_SPECS
+
 # ---------------------------------------------------------------------------
-TIMM_ID_PRETRAIN = "beit_base_patch16_224.in22k"           # pre-train only ✓
-TIMM_ID_FINETUNED = "beit_base_patch16_224.in22k_ft_in22k_in1k"  # reference only
-HF_REPO_PRETRAIN  = "microsoft/beit-base-patch16-224-pt22k"
+TIMM_ID    = MODEL_SPECS["beit_b16"].timm_id
 PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196
 
 
 class BEiTB16(nn.Module):
     """
-    Wrapper for BEiT-B/16 (pre-train checkpoint only).
+    Wrapper for BEiT-B/16 (timm ``beit_base_patch16_224.in22k_ft_in22k``).
 
     Parameters
     ----------
@@ -47,13 +52,13 @@ class BEiTB16(nn.Module):
         0  → return CLS-token features (dim=768).
         >0 → attach linear classification head.
     pretrained : bool
-        Load IN-22K pre-trained weights (NOT the fine-tuned version).
+        Load the MIM + supervised IN-22k weights (see module provenance note).
     """
 
     def __init__(self, num_classes: int = 0, pretrained: bool = True):
         super().__init__()
         self.backbone = timm.create_model(
-            TIMM_ID_PRETRAIN,
+            TIMM_ID,
             pretrained=pretrained,
             num_classes=num_classes,
         )
@@ -112,19 +117,13 @@ class BEiTB16(nn.Module):
 # ---------------------------------------------------------------------------
 def load_beit_b16(num_classes: int = 0, pretrained: bool = True) -> BEiTB16:
     """
-    Load BEiT-B/16 pre-train-only checkpoint.
+    Load BEiT-B/16 (MIM + supervised IN-22k weights, see module docstring).
 
     Parameters
     ----------
     num_classes : int
         Downstream classification classes (0 = feature extractor).
     pretrained : bool
-        Load IN-22K pre-trained (MIM) weights.
+        Load pre-trained weights.
     """
     return BEiTB16(num_classes=num_classes, pretrained=pretrained)
-
-
-def load_beit_b16_hf():
-    """Load BEiT-B/16 pre-train weights via HuggingFace Transformers."""
-    from transformers import BeitModel
-    return BeitModel.from_pretrained(HF_REPO_PRETRAIN)

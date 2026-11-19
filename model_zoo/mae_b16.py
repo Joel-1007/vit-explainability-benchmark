@@ -20,7 +20,9 @@ import timm
 import torch
 import torch.nn as nn
 
-TIMM_ID    = "vit_base_patch16_224.mae"
+from .specs import MODEL_SPECS
+
+TIMM_ID = MODEL_SPECS["mae_b16"].timm_id   # pinned in model_zoo/specs.py
 PATCH_SIZE = 16
 
 
