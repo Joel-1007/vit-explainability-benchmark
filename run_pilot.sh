@@ -110,6 +110,7 @@ uv run python run_phase3.py \
     --seed "$SEED" \
     --max-batches "$MAX_BATCHES" \
     --norm-mode minmax \
+    --ablations \
     "${WEIGHT_ARGS[@]}"
 
 echo ""
@@ -125,7 +126,9 @@ if [ -f "$RESULTS_CSV" ]; then
     uv run python scripts/phase4_interaction_analysis.py \
         --results_csv "$RESULTS_CSV" \
         --output_dir "$OUTPUT_DIR"
-    # phase4_ablations.py (A1–A4) is not implemented yet and is not run here.
+    uv run python scripts/phase4_ablations.py \
+        --results_csv "$RESULTS_CSV" \
+        --output_dir "$OUTPUT_DIR"
 else
     echo "  ⚠️  No aggregated_results.csv — Phase 4 analytics skipped."
     echo "       run_phase3.py writes it at the end of a run; check the log above."

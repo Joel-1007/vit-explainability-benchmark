@@ -30,8 +30,48 @@ ID_COLUMNS = ["dataset", "model", "explainer", "sample_id"]
 NON_METRIC_COLUMNS = ID_COLUMNS + ["label", "pred", "correct"]
 
 
+# Rows/columns that exist only for Phase 4 ablations; the main analyses
+# (correlation, factor analysis, rankings) exclude them.
+ABLATION_EXPLAINERS = {"raw_attention_patch", "raw_attention_last3", "raw_attention_all"}
+ABLATION_MODELS = {"mae_b16"}
+
+
 def metric_columns(df: pd.DataFrame) -> list[str]:
     return [c for c in df.columns if c not in NON_METRIC_COLUMNS]
+
+
+_PRIMARY = ["miou", "pointing_game", "egt", "gini", "entropy_norm", "emr_90",
+            "max_sensitivity", "model_randomisation", "label_randomisation",
+            "pgd_robustness"]
+
+
+def primary_fidelity_k(df: pd.DataFrame) -> str | None:
+    """Middle fidelity fraction present, e.g. '0.20' for k ∈ {0.10, 0.20, 0.50}."""
+    ks = sorted({c.split("@", 1)[1] for c in df.columns
+                 if c.startswith("comprehensiveness@") and "[" not in c}, key=float)
+    return ks[len(ks) // 2] if ks else None
+
+
+def primary_metric_columns(df: pd.DataFrame) -> list[str]:
+    """
+    One column per metric concept: miou (not each iou@τ), emr_90 (not 50/95),
+    and fidelity at the middle k. Near-duplicate columns would otherwise
+    dominate correlation-based analyses such as factor analysis.
+    """
+    cols = [c for c in _PRIMARY if c in df.columns]
+    k = primary_fidelity_k(df)
+    if k is not None:
+        cols[6:6] = [f"sufficiency@{k}", f"comprehensiveness@{k}", f"log_odds_drop@{k}"]
+    return [c for c in cols if c in df.columns]
+
+
+def main_results(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop ablation-only explainers, models and ``metric[mode]`` columns."""
+    from .sample_metrics import is_ablation_column
+
+    keep = ~df["explainer"].isin(ABLATION_EXPLAINERS) & ~df["model"].isin(ABLATION_MODELS)
+    cols = [c for c in df.columns if not is_ablation_column(c)]
+    return df.loc[keep, cols].dropna(axis=1, how="all").reset_index(drop=True)
 
 
 def load_per_sample(checkpoint_dir: str | Path) -> pd.DataFrame:

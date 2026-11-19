@@ -63,9 +63,12 @@ from torch.utils.data import DataLoader
 import numpy as np
 
 # ── Project imports ──────────────────────────────────────────────────────────
-from model_zoo import load_model, MODEL_REGISTRY
+from model_zoo import load_model, MODEL_REGISTRY, ABLATION_MODEL_REGISTRY
 from explainers import (
     RawAttentionExplainer,
+    RawPatchAttentionExplainer,
+    RawAttentionLast3Explainer,
+    RawAttentionAllLayersExplainer,
     AttentionRolloutExplainer,
     GradCAMExplainer,
     CheferLRPExplainer,
@@ -73,7 +76,9 @@ from explainers import (
     LIMEExplainer,
 )
 from metrics.runner import Phase3Runner
-from metrics.sample_metrics import FAMILIES, SampleMetricComputer
+from metrics.sample_metrics import ALL_FAMILIES, FAMILIES, SampleMetricComputer
+from metrics.fidelity import MASK_MODES
+from utils.eval_datasets import IMAGENET_MEAN, IMAGENET_STD
 from metrics.aggregate import aggregate
 from utils.eval_datasets import DATASET_CLASSES, NUM_CLASSES, build_eval_loader
 
@@ -91,6 +96,15 @@ EXPLAINER_REGISTRY: Dict[str, type] = {
     "rise":          RISEExplainer,              # E5
     "lime":          LIMEExplainer,              # E6
 }
+
+# Phase 4 ablation variants — selectable, never part of the default matrix.
+ABLATION_EXPLAINER_REGISTRY: Dict[str, type] = {
+    "raw_attention_patch": RawPatchAttentionExplainer,      # A1 patch vs CLS
+    "raw_attention_last3": RawAttentionLast3Explainer,      # A2 last 3 layers
+    "raw_attention_all":   RawAttentionAllLayersExplainer,  # A2 all layers
+}
+ALL_EXPLAINERS = {**EXPLAINER_REGISTRY, **ABLATION_EXPLAINER_REGISTRY}
+ALL_MODELS = [*MODEL_REGISTRY, *ABLATION_MODEL_REGISTRY]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -137,6 +151,7 @@ MODEL_GRID_PATCH = {
     "swin_b":        16,
     "dino_vitb8":     8,
     "dinov2_vitb14": 14,
+    "mae_b16":       16,   # ablation A4
 }
 
 
@@ -213,6 +228,8 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
             "metrics": args.metrics,
             "robustness_subset": args.robustness_subset,
             "robustness_samples": args.robustness_samples,
+            "fidelity_ablation_modes": args.fidelity_ablation_modes,
+            "ablations": args.ablations,
             "batch_size": args.batch_size,
             "dry_run": args.dry_run,
         },
@@ -290,15 +307,17 @@ def build_parser() -> argparse.ArgumentParser:
     # Filters
     p.add_argument(
         "--models", nargs="+", default=list(MODEL_REGISTRY.keys()),
-        choices=list(MODEL_REGISTRY.keys()),
+        choices=ALL_MODELS,
         metavar="MODEL",
-        help=f"Models to evaluate. Default: all ({', '.join(MODEL_REGISTRY.keys())})",
+        help=f"Models to evaluate. Default: the main 6 ({', '.join(MODEL_REGISTRY.keys())}). "
+             "Ablation A4 also needs: mae_b16.",
     )
     p.add_argument(
         "--explainers", nargs="+", default=list(EXPLAINER_REGISTRY.keys()),
-        choices=list(EXPLAINER_REGISTRY.keys()),
+        choices=list(ALL_EXPLAINERS),
         metavar="EXPLAINER",
-        help=f"Explainers to evaluate. Default: all ({', '.join(EXPLAINER_REGISTRY.keys())})",
+        help=f"Explainers to evaluate. Default: E1–E6 ({', '.join(EXPLAINER_REGISTRY.keys())}). "
+             f"Ablation variants: {', '.join(ABLATION_EXPLAINER_REGISTRY)}.",
     )
     p.add_argument(
         "--datasets", nargs="+", default=list(DATASET_CLASSES.keys()),
@@ -346,8 +365,20 @@ def build_parser() -> argparse.ArgumentParser:
              "pre-trained backbone with a random head. Results are NOT valid.",
     )
     p.add_argument(
-        "--metrics", nargs="+", default=list(FAMILIES), choices=list(FAMILIES),
-        help="Metric families computed per sample (default: all).",
+        "--metrics", nargs="+", default=list(FAMILIES), choices=list(ALL_FAMILIES),
+        help=f"Metric families computed per sample (default: {' '.join(FAMILIES)}). "
+             "'adversarial' adds PGD robustness on the robustness subset.",
+    )
+    p.add_argument(
+        "--fidelity-ablation-modes", nargs="+", default=[], choices=list(MASK_MODES),
+        help="Ablation A3: also compute fidelity with these masking baselines "
+             "(columns suffixed [zero]/[blur]); the main columns use 'mean'.",
+    )
+    p.add_argument(
+        "--ablations", action="store_true",
+        help="Shortcut for ablations A1–A3: add the raw-attention variants to "
+             "--explainers and --fidelity-ablation-modes zero blur. "
+             "For A4 also pass --models vit_b16 mae_b16 (needs MAE weights).",
     )
     p.add_argument(
         "--robustness-subset", type=int, default=100,
@@ -386,6 +417,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # ── Ablation shortcut (before metadata is saved) ─────────────────────
+    if args.ablations:
+        for name in ["raw_attention", "rollout", *ABLATION_EXPLAINER_REGISTRY]:
+            if name not in args.explainers:
+                args.explainers.append(name)
+        args.fidelity_ablation_modes = sorted({*args.fidelity_ablation_modes, "zero", "blur"})
 
     # ── Handle dry-run defaults ──────────────────────────────────────────
     if args.dry_run:
@@ -429,7 +467,7 @@ def main(argv: list[str] | None = None) -> None:
     _save_run_metadata(args, args.checkpoint_dir)
 
     explainers = {
-        name: cls for name, cls in EXPLAINER_REGISTRY.items()
+        name: cls for name, cls in ALL_EXPLAINERS.items()
         if name in args.explainers
     }
 
@@ -471,6 +509,9 @@ def main(argv: list[str] | None = None) -> None:
         norm_mode=args.norm_mode,
         robustness_subset=None if args.robustness_subset < 0 else args.robustness_subset,
         robustness_samples=args.robustness_samples,
+        fidelity_ablation_modes=args.fidelity_ablation_modes,
+        input_mean=IMAGENET_MEAN,
+        input_std=IMAGENET_STD,
         seed=args.seed,
     )
 

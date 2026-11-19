@@ -9,7 +9,7 @@ import sys
 import argparse
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from metrics.aggregate import metric_columns  # noqa: E402
+from metrics.aggregate import main_results, metric_columns  # noqa: E402
 from metrics.sample_metrics import metric_direction  # noqa: E402
 import pandas as pd
 import numpy as np
@@ -89,7 +89,7 @@ def main():
             "Phase 4 needs real Phase 3 results; no dummy data is generated."
         )
     print(f"Loading results from {args.results_csv}...")
-    df = pd.read_csv(args.results_csv)
+    df = main_results(pd.read_csv(args.results_csv))   # ablation rows/columns excluded
 
     print("Computing rankings...")
     rankings_df = compute_rankings(df)

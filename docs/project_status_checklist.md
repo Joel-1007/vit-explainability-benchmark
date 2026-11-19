@@ -85,16 +85,16 @@ Legend:
 |---|------|--------|-------|
 | 4.1 | Inter-metric correlation script | ✅ | `scripts/phase4_correlation_analysis.py` |
 | 4.1 | Compute Spearman correlation matrix | 🔶 | Requires Phase 3 results CSV |
-| 4.1 | Factor analysis (PCA/varimax) | ❌ | Not implemented — the script used to write hard-coded numbers; now skipped with a warning |
+| 4.1 | Factor analysis (PCA/varimax) | ✅ code / 🔶 run | `run_factor_analysis()`: PCA on Spearman correlations, Kaiser criterion, varimax; `--fa_level sample\|combination` (2026-11-19) |
 | 4.1 | Write interpretation paragraph | 🔶 | Post-analysis writing |
 | 4.2 | Task-metric interaction script | ✅ | `scripts/phase4_interaction_analysis.py` |
 | 4.2 | Kendall τ concordance | 🔶 | Requires Phase 3 results CSV |
 | 4.2 | Practitioner decision tree | 🔶 | Requires concordance results |
-| 4.3 | Ablation studies script | ❌ | `scripts/phase4_ablations.py` raises NotImplementedError (previously random data); Cohen's d helper is ready |
-| 4.3 | A1: Token resolution ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A2: Layer depth ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A3: Masking strategy ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A4: Pre-training objective ablation | 🔶 | Requires GPU re-runs |
+| 4.3 | Ablation studies script | ✅ | Paired comparisons: means, stds, Cohen's d, Wilcoxon, Bonferroni (2026-11-19) |
+| 4.3 | A1: Token resolution ablation | 🔶 | `raw_attention` vs `raw_attention_patch`; produced by `run_phase3.py --ablations` |
+| 4.3 | A2: Layer depth ablation | 🔶 | last layer vs last 3 / all layers / rollout; `--ablations` |
+| 4.3 | A3: Masking strategy ablation | 🔶 | fidelity with mean vs zero vs blur + masking sensitivity; `--ablations` |
+| 4.3 | A4: Pre-training objective ablation | 🔶 | `vit_b16` vs `mae_b16` (added to model zoo); needs MAE fine-tuning on GPU |
 | 4.3 | Cohen's d for all ablations | 🔶 | Post-ablation computation |
 | 4.x | BENCHMARK.md Phase 4 placeholders filled | 🔶 | Requires all above results |
 | 4.x | README.md Phase 4 placeholders filled | 🔶 | Requires all above results |

@@ -263,6 +263,6 @@ def test_run_phase3_swin_skips_unsupported_explainers(data_root, tmp_path, monke
 
 def test_model_grid_patch_sizes():
     from run_phase3 import MODEL_GRID_PATCH
-    from model_zoo import MODEL_REGISTRY
-    assert set(MODEL_GRID_PATCH) == set(MODEL_REGISTRY)
+    from model_zoo import ABLATION_MODEL_REGISTRY, MODEL_REGISTRY
+    assert set(MODEL_GRID_PATCH) == set(MODEL_REGISTRY) | set(ABLATION_MODEL_REGISTRY)
     assert MODEL_GRID_PATCH["dino_vitb8"] == 8 and MODEL_GRID_PATCH["dinov2_vitb14"] == 14

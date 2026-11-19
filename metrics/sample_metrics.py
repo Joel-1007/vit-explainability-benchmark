@@ -9,6 +9,12 @@ Computes, for every image of a (dataset, model, explainer) combination:
     robustness    R1 max_sensitivity, R2 model_randomisation, R3 label_randomisation
                   (first ``robustness_subset`` images only — it re-runs the
                   explainer 2 + n_samples times per image)
+    adversarial   pgd_robustness: cosine similarity of the map before/after a
+                  PGD attack (opt-in; same image subset as robustness)
+
+Ablation A3 (masking strategy): with ``fidelity_ablation_modes=("zero", "blur")``
+the fidelity metrics are also computed under those baselines, in columns
+suffixed ``[zero]`` / ``[blur]``; unsuffixed columns use ``fidelity_mask_mode``.
 
 plus ``pred`` and ``correct``. L4 (CalibGap) is a dataset-level statistic,
 computed from ``egt`` and ``correct`` in :mod:`metrics.aggregate`.
@@ -25,8 +31,9 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 
 import torch
 
+from .adversarial_robustness import PGDRobustnessMetric
 from .complexity import ComplexityMetrics
-from .fidelity import FidelityMetrics
+from .fidelity import MASK_MODES, FidelityMetrics
 from .localization import LocalizationMetrics
 from .normalize import normalize_attribution
 from .robustness import (
@@ -35,7 +42,8 @@ from .robustness import (
     randomise_model_weights,
 )
 
-FAMILIES = ("localization", "complexity", "fidelity", "robustness")
+FAMILIES = ("localization", "complexity", "fidelity", "robustness")   # default
+ALL_FAMILIES = FAMILIES + ("adversarial",)
 
 _COMPLEXITY_KEYS = ("gini", "entropy_norm", "emr_50", "emr_90", "emr_95", "k_star_90")
 
@@ -47,11 +55,19 @@ METRIC_DIRECTIONS: Dict[str, int] = {
     "comprehensiveness@": +1,    # f(x) - f(x_drop): large = dropped patches mattered
     "log_odds_drop@": +1,
     "max_sensitivity": -1, "model_randomisation": +1, "label_randomisation": +1,
+    "pgd_robustness": +1,
 }
+
+
+def is_ablation_column(name: str) -> bool:
+    """Columns that exist only for ablations (e.g. ``comprehensiveness@0.20[zero]``)."""
+    return name.endswith("]") and "[" in name
 
 
 def metric_direction(name: str) -> Optional[int]:
     """+1 / -1 for a known metric column, None otherwise."""
+    if is_ablation_column(name):
+        name = name[: name.index("[")]
     if name in METRIC_DIRECTIONS:
         return METRIC_DIRECTIONS[name]
     for key, d in METRIC_DIRECTIONS.items():
@@ -77,12 +93,28 @@ class SampleMetricComputer:
         robustness_subset:   Optional[int] = 100,
         robustness_samples:  int   = 20,
         robustness_epsilon:  float = 0.05,
+        fidelity_ablation_modes: Sequence[str] = (),
+        pgd_epsilon:         float = 0.03,
+        pgd_steps:           int   = 10,
+        input_mean:          Optional[Sequence[float]] = None,
+        input_std:           Optional[Sequence[float]] = None,
         seed:                int   = 42,
     ) -> None:
         self.families = tuple(families)
-        unknown = set(self.families) - set(FAMILIES)
+        unknown = set(self.families) - set(ALL_FAMILIES)
         if unknown:
-            raise ValueError(f"Unknown metric families {sorted(unknown)}; choose from {FAMILIES}")
+            raise ValueError(f"Unknown metric families {sorted(unknown)}; choose from {ALL_FAMILIES}")
+        bad = set(fidelity_ablation_modes) - set(MASK_MODES)
+        if bad:
+            raise ValueError(f"Unknown mask modes {sorted(bad)}; choose from {MASK_MODES}")
+        self.fidelity_ablation_modes = tuple(
+            m for m in fidelity_ablation_modes if m != fidelity_mask_mode
+        )
+        self.pgd_epsilon = pgd_epsilon
+        self.pgd_steps   = pgd_steps
+        # Normalisation of the model inputs; PGD needs it to attack in pixel space.
+        self.input_mean  = tuple(input_mean) if input_mean is not None else None
+        self.input_std   = tuple(input_std) if input_std is not None else None
         self.norm_mode          = norm_mode
         self.thresholds         = tuple(thresholds)
         self.fidelity_k         = tuple(fidelity_k)
@@ -113,6 +145,15 @@ class BoundMetrics:
         self.rob  = RobustnessMetrics(
             epsilon=cfg.robustness_epsilon, n_samples=cfg.robustness_samples, seed=cfg.seed,
         )
+        self.fid_ablation = {
+            m: FidelityMetrics(mask_mode=m, k_fractions=cfg.fidelity_k)
+            for m in cfg.fidelity_ablation_modes
+        }
+        self.pgd = PGDRobustnessMetric(
+            epsilon=cfg.pgd_epsilon, alpha=cfg.pgd_epsilon / 4, steps=cfg.pgd_steps,
+            mean=cfg.input_mean, std=cfg.input_std,
+        )
+        self.n_adversarial = 0
         self._rand_explainer = None
         self._shuf_explainer = None
         self._shuf_error: Optional[str] = None
@@ -172,6 +213,11 @@ class BoundMetrics:
             for k, v in fid.items():
                 for i in range(B):
                     rows[i][k] = float(v[i])
+            for mode, fm in self.fid_ablation.items():                 # ablation A3
+                fid = fm.compute_all(self.model, x, y, att_norm.to(x.device))
+                for k, v in fid.items():
+                    for i in range(B):
+                        rows[i][f"{k}[{mode}]"] = float(v[i])
 
         if "robustness" in cfg.families:
             for i in range(B):
@@ -179,6 +225,18 @@ class BoundMetrics:
                     break
                 rows[i].update(self._robustness_one(x[i:i + 1], int(y[i]), att_norm[i]))
                 self.n_robust += 1
+
+        if "adversarial" in cfg.families:
+            for i in range(B):
+                if cfg.robustness_subset is not None and self.n_adversarial >= cfg.robustness_subset:
+                    break
+                yi = int(y[i])
+                explain = lambda img3d, yi=yi: self._explain_one(  # noqa: E731
+                    self.explainer, img3d.unsqueeze(0), yi)
+                rows[i]["pgd_robustness"] = float(
+                    self.pgd.compute(self.model, x[i], explain, target_class=yi)
+                )
+                self.n_adversarial += 1
 
         return rows
 

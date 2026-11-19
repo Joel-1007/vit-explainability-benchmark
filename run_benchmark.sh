@@ -31,10 +31,20 @@ uv run python scripts/verify_datasets.py \
 
 echo "[3/4] Running Baseline Evaluation Suite (Phase 3)"
 mkdir -p "$CHECKPOINT_DIR"
+# --ablations adds the A1/A2 raw-attention variants and A3 zero/blur fidelity.
+# A4 (MAE vs supervised) runs only if fine-tuned MAE weights are present.
+MODELS=(vit_b16 deit_b16 swin_b beit_b16 dino_vitb8 dinov2_vitb14)
+if ls "$WEIGHTS_DIR"/mae_b16_* >/dev/null 2>&1; then
+  MODELS+=(mae_b16)
+else
+  echo "  Note: no mae_b16 weights in $WEIGHTS_DIR — ablation A4 will be skipped."
+fi
 # The Phase3Runner caches results incrementally per (dataset, model, explainer).
 # It can safely be interrupted and resumed.
 uv run python run_phase3.py \
   --data-root "$DATA_ROOT" \
+  --models "${MODELS[@]}" \
+  --ablations \
   --checkpoint-dir "$CHECKPOINT_DIR" \
   --seed $SEED \
   --weights-dir "$WEIGHTS_DIR" \
@@ -51,7 +61,7 @@ if [ -f "$RESULTS_CSV" ]; then
   echo "Running Analytical Modules..."
   uv run python scripts/phase4_correlation_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
   uv run python scripts/phase4_interaction_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
-  # phase4_ablations.py (A1–A4) is not implemented yet and is not run here.
+  uv run python scripts/phase4_ablations.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
 else
   echo "WARNING: $RESULTS_CSV not found — Phase 4 analytics SKIPPED."
   echo "         Did Phase 3 finish? Re-run: uv run python -m metrics.aggregate --checkpoint-dir $CHECKPOINT_DIR"

@@ -26,7 +26,12 @@ class PGDRobustnessMetric:
     even if the classifier's prediction changes.
     """
 
-    def __init__(self, epsilon: float = 0.03, alpha: float = 0.01, steps: int = 10, random_start: bool = True):
+    def __init__(self, epsilon: float = 0.03, alpha: float = 0.01, steps: int = 10,
+                 random_start: bool = True, mean=None, std=None):
+        # mean/std: normalisation of the inputs (see utils.pgd.pgd_attack).
+        # Leave None only if inputs are raw [0, 1] pixels.
+        self.mean = mean
+        self.std = std
         self.epsilon = epsilon
         self.alpha = alpha
         self.steps = steps
@@ -47,13 +52,14 @@ class PGDRobustnessMetric:
         model : torch.nn.Module
             The classifier model.
         x : torch.Tensor
-            Original input image tensor of shape (C, H, W) in [0, 1].
+            Original input image (C, H, W): [0, 1] pixels, or normalised
+            inputs if the metric was built with ``mean``/``std``.
         explainer_fn : Callable[[torch.Tensor], torch.Tensor]
             A function or method that takes an image tensor `(C, H, W)` and returns
             the attribution map `(H_m, W_m)`.
         target_class : int | None
-            If provided, performs a targeted attack towards this class.
-            If None, performs an untargeted attack (maximizing loss against predicted class).
+            Class whose loss the (untargeted) attack maximises — usually the
+            true label. If None, the model's predicted class is used.
 
         Returns
         -------
@@ -78,7 +84,9 @@ class PGDRobustnessMetric:
             epsilon=self.epsilon,
             alpha=self.alpha,
             steps=self.steps,
-            random_start=self.random_start
+            random_start=self.random_start,
+            mean=self.mean,
+            std=self.std,
         )
 
         # Generate explanations

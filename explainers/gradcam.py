@@ -39,7 +39,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from .base import BaseExplainer, _get_timm_blocks
+from .base import BaseExplainer, _get_timm_blocks, _num_prefix_tokens
 
 
 class GradCAMExplainer(BaseExplainer):
@@ -153,16 +153,3 @@ class GradCAMExplainer(BaseExplainer):
 
         return cam
 
-
-def _num_prefix_tokens(model: "torch.nn.Module", n_tokens: int) -> int:
-    """Number of non-patch tokens (CLS, distillation, registers) in a sequence."""
-    for m in (model, getattr(model, "backbone", None)):
-        n = getattr(m, "num_prefix_tokens", None)
-        if isinstance(n, int):
-            return n
-    # Fallback: smallest k such that the remaining tokens form a square grid.
-    for k in range(0, 9):
-        r = int(round((n_tokens - k) ** 0.5))
-        if r * r == n_tokens - k:
-            return k
-    return 1

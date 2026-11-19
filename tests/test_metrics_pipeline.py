@@ -167,7 +167,9 @@ def test_phase4_scripts_run_on_real_output(phase3_output, tmp_path):
         assert r.returncode == 0, r.stdout + r.stderr
     corr = pd.read_csv(out / "inter_metric_correlations.csv", index_col=0)
     assert not set(corr.index) & set(NON_METRIC_COLUMNS)
-    assert not (out / "factor_analysis_results.csv").exists()      # skipped, not faked
+    fa = pd.read_csv(out / "factor_analysis_results.csv")          # computed from the data
+    assert fa.Cumulative_Variance_Pct.iloc[-1] == pytest.approx(100)
+    assert fa.Eigenvalue.tolist() != [3.1, 1.8, 1.1]                  # not the old placeholder
 
     ranks = pd.read_csv(out / "explainer_rankings.csv")
     # rank 1 must be the best explainer under each metric's direction
