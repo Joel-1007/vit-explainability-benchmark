@@ -9,7 +9,7 @@
 
 ## Overview
 
-Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **6 explanation methods** (plus a DIME placeholder, E7, not yet evaluated), and **4 datasets**, measuring **13 metrics** (F1–F3, L1–L4, R1–R3, C1–C3) spanning Fidelity, Localization, Robustness, and Complexity.
+Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **6 explanation methods** (plus a DIME placeholder, E7, not evaluated, and optional Integrated Gradients, E8), and **4 datasets**, measuring **13 metrics** (F1–F3, L1–L4, R1–R3, C1–C3) spanning Fidelity, Localization, Robustness, and Complexity.
 
 > 📖 **Full technical reference:** [BENCHMARK.md](BENCHMARK.md) — contains all metric definitions, mathematical proofs, experimental protocols, and API specifications.
 
@@ -21,7 +21,7 @@ Existing evaluation frameworks for Vision Transformer (ViT) explanations are oft
 |-----------|---------|------------------|
 | **Fidelity (F1–F3)** | Sufficiency, Comprehensiveness, Log-odds | Does removing highlighted patches destroy model confidence? |
 | **Localization (L1–L4)** | mIoU, Pointing Game, EGT, CalibGap | Does the explanation highlight the object of interest? |
-| **Robustness (R1–R3)** | MaxSens, ModelRand, LabelRand | Is the explanation stable under perturbations? |
+| **Robustness (R1–R3)** | MaxSens, ModelRand, HeadPerm | Is the explanation stable and model-sensitive? |
 | **Complexity (C1–C3)** | Gini, Entropy, Effective Mass Ratio | Is the explanation parsimonious and interpretable? |
 
 Additionally, the **Axiomatic Analysis Tool** (`AxiomVerifier`) maps every metric against the four Shapley axioms (Dummy, Completeness, Symmetry, Linearity), surfacing representational biases — including Theorem T6: the anti-alignment of complexity and symmetry.
@@ -50,6 +50,7 @@ Six ViT variants (~86M parameters each), fine-tuned under an identical standardi
 | E5 | RISE | `RISEExplainer` | ✓ |
 | E6 | LIME | `LIMEExplainer` | ✓ |
 | E7 | DIME | `DIMEExplainer` | — *(placeholder)* |
+| E8 | Integrated Gradients (optional) | `IntegratedGradientsExplainer` | ✓ |
 
 ---
 
@@ -229,7 +230,7 @@ vit-explainability-benchmark/
 ├── metrics/                    # Evaluation suite
 │   ├── fidelity.py             #   F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
 │   ├── localization.py         #   L1–L4 (mIoU, PG, EGT, CalibGap)
-│   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, LabelRand)
+│   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, HeadPerm)
 │   ├── complexity.py           #   C1–C3 (Gini, Entropy, EMR)
 │   ├── axiom_verifier.py       #   Axiomatic analysis (A1–A4) + Theorems T1–T6
 │   ├── normalize.py            #   Attribution normalisation pipeline

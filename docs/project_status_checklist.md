@@ -43,7 +43,7 @@ Legend:
 | 2.3 | Robustness metrics R1–R3 | ✅ | `metrics/robustness.py`, 16 tests passing |
 | 2.4 | Complexity metrics C1–C3 | ✅ | `metrics/complexity.py`, 45+20 tests passing |
 | 2.5 | Axiomatic analysis (A1–A4) | ✅ | `metrics/axiom_verifier.py`, 20+7 tests, Theorems T1–T6 |
-| 2.5 | Axiom satisfaction table (15×4) | ✅ | `BENCHMARK.md §2.5.2` |
+| 2.5 | Axiom satisfaction table (13×4) | ✅ | `BENCHMARK.md §2.5.2`; reduced to the 13 implemented metrics, theorems T1–T6 revised after review (2026-11-19) |
 | 2.5 | ≥3 formal theorems / counterexamples | ✅ | 6 theorems (T1–T6) documented |
 | 2.x | `MetricSuite` unified class | ✅ | Unified class created at `metrics/suite.py` per instructions |
 
