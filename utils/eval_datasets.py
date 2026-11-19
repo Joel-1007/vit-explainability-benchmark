@@ -3,12 +3,16 @@ eval_datasets.py — evaluation datasets with ground-truth localization masks.
 
 Every dataset yields ``(image, label, gt_mask)``:
 
-    image   : (3, 224, 224) float32, ImageNet-normalised
+    image   : (3, 224, 224) float32 RGB pixels in [0, 1] — NOT normalised;
+              each model wrapper applies its own pre-training mean/std
+              (model_zoo/normalize.py)
     label   : int, class index in the order the fine-tuned head uses
     gt_mask : (224, 224) int64 — 1 = object, 0 = background, 255 = ignore
 
-Image and mask go through the same geometry (resize shorter side to 256,
-centre-crop 224); masks use nearest-neighbour resampling so labels stay
+Geometry (frozen protocol, identical for every model and for fine-tuning
+validation): resize the shorter side to 256 px, centre-crop 224 px
+(crop fraction 0.875). Images use bicubic resampling on the 8-bit PIL image
+(values stay in [0, 255] → [0, 1]); masks use nearest-neighbour so labels stay
 discrete. ``metrics.localization._binary_gt`` treats 255 as "ignore".
 
 Class orders (fine-tuning MUST use the same order, or the explained class
@@ -45,8 +49,12 @@ from torchvision.transforms import InterpolationMode
 import torchvision.transforms.functional as TF
 
 IGNORE = 255
-IMAGENET_MEAN = (0.485, 0.456, 0.406)
+IMAGENET_MEAN = (0.485, 0.456, 0.406)   # reference only; models normalise themselves
 IMAGENET_STD  = (0.229, 0.224, 0.225)
+
+# Frozen input geometry (also used by training/transforms.py)
+INPUT_SIZE  = 224
+RESIZE_SIZE = 256                       # crop fraction 224 / 256 = 0.875
 
 VOC_CLASSES = (
     "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat",
@@ -75,18 +83,25 @@ NUM_CLASSES = {
 # ---------------------------------------------------------------------------
 
 class PairTransform:
-    """Resize shorter side → ``resize``, centre-crop ``size``; same geometry for both."""
+    """
+    Resize shorter side → ``resize``, centre-crop ``size``; identical geometry
+    for image (bicubic) and mask (nearest). Returns [0, 1] pixels.
+    """
 
-    def __init__(self, size: int = 224, resize: int = 256) -> None:
+    def __init__(self, size: int = INPUT_SIZE, resize: int = RESIZE_SIZE) -> None:
         self.size, self.resize = size, resize
-        self.normalize = transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD)
+
+    def image(self, img: Image.Image) -> torch.Tensor:
+        img = TF.center_crop(TF.resize(img, self.resize, InterpolationMode.BICUBIC), self.size)
+        return TF.to_tensor(img)
+
+    def mask(self, mask: np.ndarray) -> torch.Tensor:
+        m = Image.fromarray(mask.astype(np.uint8))
+        m = TF.center_crop(TF.resize(m, self.resize, InterpolationMode.NEAREST), self.size)
+        return torch.from_numpy(np.array(m, dtype=np.int64))
 
     def __call__(self, img: Image.Image, mask: np.ndarray) -> Tuple[torch.Tensor, torch.Tensor]:
-        m = Image.fromarray(mask.astype(np.uint8))
-        img = TF.center_crop(TF.resize(img, self.resize, InterpolationMode.BILINEAR), self.size)
-        m   = TF.center_crop(TF.resize(m,   self.resize, InterpolationMode.NEAREST),  self.size)
-        x = self.normalize(TF.to_tensor(img))
-        return x, torch.from_numpy(np.array(m, dtype=np.int64))
+        return self.image(img), self.mask(mask)
 
 
 class _MaskedDataset(Dataset):

@@ -34,6 +34,7 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
 from .specs import MODEL_SPECS
 
 # ---------------------------------------------------------------------------
@@ -57,6 +58,8 @@ class BEiTB16(nn.Module):
 
     def __init__(self, num_classes: int = 0, pretrained: bool = True):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["beit_b16"].mean, MODEL_SPECS["beit_b16"].std)
         self.backbone = timm.create_model(
             TIMM_ID,
             pretrained=pretrained,
@@ -73,45 +76,8 @@ class BEiTB16(nn.Module):
 
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
-    # ------------------------------------------------------------------
-    def get_last_selfattention(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Return attention weights from the final transformer block.
-
-        Returns
-        -------
-        attn : Tensor, shape (B, num_heads, N+1, N+1)
-            Index 0 = CLS token.
-        """
-        # BEiT uses relative position bias; timm handles this internally.
-        x = self.backbone.patch_embed(x)
-        cls_token = self.backbone.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_token, x), dim=1)
-
-        # BEiT does NOT use a learned pos embed on input (uses rel-pos bias)
-        x = self.backbone.pos_drop(x)
-
-        attn = None
-        for i, blk in enumerate(self.backbone.blocks):
-            if i < len(self.backbone.blocks) - 1:
-                x = blk(x)
-            else:
-                x_norm = blk.norm1(x)
-                B, N, C = x_norm.shape
-                head_dim = C // blk.attn.num_heads
-                qkv = blk.attn.qkv(x_norm).reshape(
-                    B, N, 3, blk.attn.num_heads, head_dim
-                ).permute(2, 0, 3, 1, 4)
-                q, k, _ = qkv.unbind(0)
-                scale = head_dim ** -0.5
-                attn = (q @ k.transpose(-2, -1)) * scale
-                # BEiT adds relative position bias
-                if hasattr(blk.attn, "get_rel_pos_bias"):
-                    attn = attn + blk.attn.get_rel_pos_bias()
-                attn = attn.softmax(dim=-1)
-        return attn   # (B, H, N+1, N+1)
 
 
 # ---------------------------------------------------------------------------

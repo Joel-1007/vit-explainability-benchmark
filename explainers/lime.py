@@ -21,7 +21,9 @@ Algorithm
 1. Partition the image into P×P non-overlapping patches (superpixels).
 2. Sample N binary perturbation vectors z ∈ {0,1}^S (S = P²).
    z[0] = [1,…,1] (original image always included).
-3. For each z: reconstruct image by replacing absent patches with mean colour.
+3. For each z: reconstruct image by replacing absent patches with the image's
+   per-channel mean colour (computed in [0, 1] pixel space, so the fill is the
+   same for every model).
 4. Batch all N reconstructed images through the model → class probability.
 5. Fit weighted ridge regression:
       w = argmin_w Σ_i π(z_i) · (f(z_i) - w^T z_i)²  +  λ‖w‖²

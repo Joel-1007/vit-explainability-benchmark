@@ -29,6 +29,7 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
 from .specs import MODEL_SPECS
 
 # ---------------------------------------------------------------------------
@@ -62,6 +63,8 @@ class DINOv2ViTB14(nn.Module):
         use_hf: bool = False,
     ):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["dinov2_vitb14"].mean, MODEL_SPECS["dinov2_vitb14"].std)
         self.patch_size  = PATCH_SIZE
         self.num_classes = num_classes
         self._use_hf     = use_hf
@@ -100,49 +103,11 @@ class DINOv2ViTB14(nn.Module):
     # ------------------------------------------------------------------
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self._use_hf:
-            out = self.backbone(pixel_values=x)
+            out = self.backbone(pixel_values=self.normalize(x))
             cls = out.last_hidden_state[:, 0]   # CLS token
             return self.head(cls)
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
-    # ------------------------------------------------------------------
-    def get_last_selfattention(self, x: torch.Tensor) -> torch.Tensor:
-        """
-        Return attention weights from the final transformer block.
-
-        Returns
-        -------
-        attn : Tensor, shape (B, num_heads, N+1, N+1)  [N=256]
-        """
-        if self._use_hf:
-            out = self.backbone(
-                pixel_values=x,
-                output_attentions=True,
-            )
-            # last layer attentions
-            return out.attentions[-1]   # (B, H, N+1, N+1)
-
-        # timm path
-        b = self.backbone
-        x = b.patch_embed(x)
-        cls_token = b.cls_token.expand(x.shape[0], -1, -1)
-        x = torch.cat((cls_token, x), dim=1)
-        x = b.pos_drop(x + b.pos_embed)
-
-        attn = None
-        for i, blk in enumerate(b.blocks):
-            if i < len(b.blocks) - 1:
-                x = blk(x)
-            else:
-                x_norm = blk.norm1(x)
-                B, N, C = x_norm.shape
-                qkv = blk.attn.qkv(x_norm).reshape(
-                    B, N, 3, blk.attn.num_heads, C // blk.attn.num_heads
-                ).permute(2, 0, 3, 1, 4)
-                q, k, _ = qkv.unbind(0)
-                attn = (q @ k.transpose(-2, -1)) * blk.attn.scale
-                attn = attn.softmax(dim=-1)
-        return attn   # (B, H, 257, 257)
 
 
 # ---------------------------------------------------------------------------

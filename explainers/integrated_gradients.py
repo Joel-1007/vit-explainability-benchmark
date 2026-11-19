@@ -6,7 +6,8 @@ Integrated Gradients (Sundararajan et al., 2017), aggregated to patches.
     IG_i(x) = (x_i − x'_i) · ∫₀¹ ∂f_y(x' + α(x − x')) / ∂x_i  dα
 
 approximated with an ``n_steps``-point Riemann sum (trapezoidal rule), with
-baseline x' = 0 in normalised input space (the dataset-mean image) and f_y
+baseline x' = 0 in [0, 1] pixel space (the **black** image; the model applies
+its own normalisation, so the baseline is the same for every model) and f_y
 the target-class logit. Pixel attributions are summed over channels and
 over the pixels of each patch:
 

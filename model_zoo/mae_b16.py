@@ -20,6 +20,7 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
 from .specs import MODEL_SPECS
 
 TIMM_ID = MODEL_SPECS["mae_b16"].timm_id   # pinned in model_zoo/specs.py
@@ -31,6 +32,8 @@ class MAEB16(nn.Module):
 
     def __init__(self, num_classes: int = 0, pretrained: bool = True):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["mae_b16"].mean, MODEL_SPECS["mae_b16"].std)
         self.backbone = timm.create_model(
             TIMM_ID,
             pretrained=pretrained,
@@ -46,7 +49,7 @@ class MAEB16(nn.Module):
         self.num_classes = num_classes
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
 
 def load_mae_b16(num_classes: int = 0, pretrained: bool = True) -> MAEB16:

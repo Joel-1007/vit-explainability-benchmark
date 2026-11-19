@@ -29,6 +29,10 @@ class ModelSpec:
     prefix_tokens: int     # CLS / distillation tokens before the patch tokens
     reference: str
     main_matrix: bool = True   # False → ablation-only (A4)
+    # Input normalisation used in PRE-TRAINING (applied inside the wrapper;
+    # the data pipeline delivers [0, 1] pixels to every model).
+    mean: Tuple[float, float, float] = (0.485, 0.456, 0.406)
+    std: Tuple[float, float, float] = (0.229, 0.224, 0.225)
 
     @property
     def hf_repo(self) -> str:
@@ -43,6 +47,7 @@ MODEL_SPECS = {
                     "recipe; no ImageNet-1k fine-tuning.",
         supervision="supervised", patch_size=16, prefix_tokens=1,
         reference="Steiner et al., 2022 (How to train your ViT?)",
+        mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
     "deit_b16": ModelSpec(
         name="deit_b16", display="DeiT-B/16 (distilled)",
@@ -70,6 +75,7 @@ MODEL_SPECS = {
                     "pre-training is isolated by ablation A4 (MAE vs ViT-B/16) instead.",
         supervision="self-supervised + supervised", patch_size=16, prefix_tokens=1,
         reference="Bao et al., 2022 (BEiT)",
+        mean=(0.5, 0.5, 0.5), std=(0.5, 0.5, 0.5),
     ),
     "dino_vitb8": ModelSpec(
         name="dino_vitb8", display="DINO ViT-B/8",

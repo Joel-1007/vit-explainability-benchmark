@@ -112,7 +112,9 @@ class SampleMetricComputer:
         )
         self.pgd_epsilon = pgd_epsilon
         self.pgd_steps   = pgd_steps
-        # Normalisation of the model inputs; PGD needs it to attack in pixel space.
+        # Inputs are [0, 1] pixels (models normalise internally), so PGD runs
+        # directly in pixel space. input_mean/std remain only for callers that
+        # feed already-normalised tensors.
         self.input_mean  = tuple(input_mean) if input_mean is not None else None
         self.input_std   = tuple(input_std) if input_std is not None else None
         self.norm_mode          = norm_mode
@@ -144,6 +146,7 @@ class BoundMetrics:
         self.fid  = FidelityMetrics(mask_mode=cfg.fidelity_mask_mode, k_fractions=cfg.fidelity_k)
         self.rob  = RobustnessMetrics(
             epsilon=cfg.robustness_epsilon, n_samples=cfg.robustness_samples, seed=cfg.seed,
+            clip_range=(0.0, 1.0),          # inputs are [0, 1] pixels
         )
         self.fid_ablation = {
             m: FidelityMetrics(mask_mode=m, k_fractions=cfg.fidelity_k)

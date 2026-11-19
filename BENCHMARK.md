@@ -163,6 +163,34 @@ Four benchmark datasets are used. All are resized (shorter side 256) and centre-
 to 224×224 for inference; GT masks go through the same geometry with nearest-neighbour
 resampling (`utils/eval_datasets.py`).
 
+### Input protocol (frozen, 2026-11-19)
+
+| Step | Definition | Applies to |
+| ---- | ---------- | ---------- |
+| Geometry | shorter side → 256 px (bicubic, 8-bit PIL), centre-crop 224 px (crop fraction 0.875) | evaluation and fine-tuning validation — bit-identical (tested) |
+| Masks | same resize/crop, nearest neighbour; 255 = ignore | evaluation |
+| Model input | RGB pixels in **[0, 1]**, never normalised by the data pipeline | all models |
+| Normalisation | each wrapper applies its **pre-training** mean/std internally (`model_zoo/normalize.py`): 0.5/0.5 for ViT-B/16 (AugReg) and BEiT, ImageNet statistics for the others (values pinned in `model_zoo/specs.py`, tested against timm's configs) | all models |
+| Training augmentation | RandomResizedCrop (bicubic), flip, colour jitter 0.4, RandAugment m9-n2, random erasing p=0.25 with N(0,1) noise defined in ImageNet-normalised coordinates and mapped back to [0,1] (identical for every model), Mixup | fine-tuning |
+
+**Why.** Every model sees identical pixels and every perturbation is defined once, in
+pixel space, while each backbone still receives the statistics it was pre-trained with.
+Normalisation is part of the model, not of the experiment. Consequences:
+RISE masks fill with black (as in the RISE paper); the IG baseline is the black image;
+LIME fills hidden patches with the image's mean colour; fidelity baselines are black
+(`zero`), image mean (`mean`, default) or Gaussian blur; R1 noise ε = 0.05 is in pixel
+units (≈ 13/255) and perturbed images are clamped to [0, 1]; PGD's ε = 0.03 (≈ 8/255) is in
+pixel units. Previously all models used ImageNet statistics in the data pipeline, so
+"zero" meant the dataset-mean colour, R1's ε was ≈ 0.011 in pixel units, and ViT-B/16 /
+BEiT received inputs normalised differently from pre-training.
+
+**Verification.** `tests/test_pixel_protocol.py` checks the per-model statistics against
+timm, internal normalisation, train-validation/evaluation equality for five aspect
+ratios, GT-mask alignment through every loader (IoU > 0.95 between the drawn object and
+its transformed mask), and each perturbation baseline. On real data,
+`scripts/audit_datasets.py --overlays 8` saves image+mask overlays for visual inspection
+**before** the protocol is used for fine-tuning.
+
 | Dataset              | Task                                         | Classes | Fine-tune train | **Evaluation set (with GT)**                     | GT type used                    | Config                       |
 | -------------------- | -------------------------------------------- | ------- | --------------- | ------------------------------------------------ | ------------------------------- | ---------------------------- |
 | **CUB-200-2011**     | Fine-grained bird classification             | 200     | 5,994           | 5,794 (official test split)                      | Pixel segmentation masks        | `configs/cub200.yaml`        |
@@ -308,8 +336,8 @@ where $x' = \tilde{x}_{\text{drop}}$. Measures the log-odds change of the explai
 after removing the top-$k$ attributed patches. **Higher is better.**
 
 **Masking baseline.** The default replaces removed patches with the per-channel image
-mean (`mask_mode="mean"`); zero and Gaussian-blur baselines are compared in ablation
-A3. Pixel-space masking produces inputs a ViT never saw during training (out of
+mean (`mask_mode="mean"`); zero (black) and Gaussian-blur baselines are compared in
+ablation A3. All baselines are defined in [0, 1] pixel space (input protocol, §1.3). Pixel-space masking produces inputs a ViT never saw during training (out of
 distribution); token removal would avoid this and is noted as a limitation.
 All three metrics are evaluated at $k \in \{0.1, 0.2, 0.5\}$ (fraction of patches).
 

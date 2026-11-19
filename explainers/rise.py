@@ -17,6 +17,10 @@ resolution, then upsample smoothly to image resolution.
 
 where f_c is the softmax probability of target class c and p = mask_prob.
 
+Input space: ``x`` is a [0, 1] pixel image (the model normalises internally),
+so x ⊙ m_k sets masked regions to **black**, as in the original RISE paper —
+identically for every model.
+
 Vectorisation strategy
 ----------------------
 All M masks are pre-generated once at ``__init__`` time (in float16 to

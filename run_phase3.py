@@ -79,7 +79,6 @@ from explainers import (
 from metrics.runner import Phase3Runner
 from metrics.sample_metrics import ALL_FAMILIES, FAMILIES, SampleMetricComputer
 from metrics.fidelity import MASK_MODES
-from utils.eval_datasets import IMAGENET_MEAN, IMAGENET_STD
 from metrics.aggregate import aggregate
 from utils.eval_datasets import DATASET_CLASSES, NUM_CLASSES, build_eval_loader
 
@@ -534,8 +533,6 @@ def main(argv: list[str] | None = None) -> None:
         robustness_subset=None if args.robustness_subset < 0 else args.robustness_subset,
         robustness_samples=args.robustness_samples,
         fidelity_ablation_modes=args.fidelity_ablation_modes,
-        input_mean=IMAGENET_MEAN,
-        input_std=IMAGENET_STD,
         seed=args.seed,
     )
 

@@ -57,7 +57,7 @@ from __future__ import annotations
 import copy
 import math
 import random
-from typing import Callable, Dict, List, Optional
+from typing import Tuple, Callable, Dict, List, Optional
 
 import torch
 import torch.nn as nn
@@ -241,6 +241,7 @@ def _perturb(
     image: torch.Tensor,
     epsilon: float,
     rng: random.Random,
+    clip_range: Optional[Tuple[float, float]] = None,
 ) -> torch.Tensor:
     """
     Add a uniform random perturbation δ ~ U(-ε, +ε) to `image`.
@@ -260,7 +261,10 @@ def _perturb(
     gen  = torch.Generator(device=image.device)
     gen.manual_seed(seed)
     delta = torch.empty_like(image.float()).uniform_(-epsilon, epsilon, generator=gen)
-    return image.float() + delta
+    out = image.float() + delta
+    if clip_range is not None:                      # stay a valid image
+        out = out.clamp(*clip_range)
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -516,6 +520,7 @@ class RobustnessMetrics:
         seed:        int | None = 42,
         ssim_window: int       = 3,
         ssim_sigma:  float     = 1.0,
+        clip_range:  Optional[Tuple[float, float]] = None,
     ) -> None:
         if epsilon <= 0:
             raise ValueError(f"epsilon must be positive, got {epsilon}.")
@@ -527,6 +532,9 @@ class RobustnessMetrics:
         self.ssim_window = ssim_window
         self.ssim_sigma  = ssim_sigma
         self._rng        = random.Random(seed)
+        # Pixel-space protocol: inputs are [0, 1] pixels, so R1 noise is in
+        # pixel units and perturbed images are clamped to (0, 1).
+        self.clip_range  = clip_range
 
     # ------------------------------------------------------------------
     # R1 — Max-Sensitivity
@@ -585,7 +593,7 @@ class RobustnessMetrics:
         max_ratio = 0.0
 
         for _ in range(self.n_samples):
-            perturbed = _perturb(img, self.epsilon, self._rng)
+            perturbed = _perturb(img, self.epsilon, self._rng, self.clip_range)
             att_perturbed = self._call_explainer(explainer, model, perturbed)
             att_perturbed = _to_2d(att_perturbed).float()
 

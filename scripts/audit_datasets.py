@@ -11,6 +11,10 @@ Per dataset it reports:
     mean GT area fraction, mean ignore-region fraction (on up to
     --mask-samples samples, spread over the dataset)
 
+With ``--overlays N``, N samples per dataset are saved as PNGs showing the
+224×224 model input with the GT mask tinted red (ignore region yellow), after
+the frozen resize/crop — a visual check that masks align with the pixels.
+
 Writes ``dataset_audit.json`` (summary + issues) and ``dataset_class_counts.csv``
 to --output_dir. Exit code 1 if any dataset has a blocking issue (missing
 classes, samples without GT, or a loader error).
@@ -136,6 +140,25 @@ def audit_one(name: str, root: Path, mask_samples: int) -> Dict:
     return rep
 
 
+def save_overlays(name: str, ds, n: int, out_dir: str) -> List[str]:
+    """Save n overlay PNGs (model input + tinted transformed mask)."""
+    from PIL import Image
+
+    os.makedirs(out_dir, exist_ok=True)
+    paths = []
+    for k, i in enumerate(spread_indices(len(ds), n)):
+        x, y, m = ds[i]
+        img = (x.permute(1, 2, 0).numpy() * 255).astype(np.float32)
+        m = m.numpy()
+        for mask_val, colour in ((1, (255, 0, 0)), (IGNORE, (255, 255, 0))):
+            sel = m == mask_val
+            img[sel] = 0.55 * img[sel] + 0.45 * np.array(colour, np.float32)
+        path = os.path.join(out_dir, f"{name}_{k:02d}_label{y}.png")
+        Image.fromarray(img.clip(0, 255).astype(np.uint8)).save(path)
+        paths.append(path)
+    return paths
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     p = argparse.ArgumentParser(description="Audit evaluation splits, labels and annotations")
     p.add_argument("--data-root", required=True)
@@ -143,10 +166,18 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--mask-samples", type=int, default=500,
                    help="Masks to inspect per dataset (spread over classes; 0 = all).")
     p.add_argument("--output_dir", default="results/audit")
+    p.add_argument("--overlays", type=int, default=0,
+                   help="Save N image+mask overlay PNGs per dataset for visual alignment checks.")
     args = p.parse_args(argv)
 
     os.makedirs(args.output_dir, exist_ok=True)
     reports = [audit_one(n, Path(args.data_root), args.mask_samples) for n in args.datasets]
+    if args.overlays:
+        for r in reports:
+            if r.get("status") == "ok":
+                subdir, cls = DATASET_CLASSES[r["dataset"]]
+                r["overlays"] = save_overlays(r["dataset"], cls(Path(args.data_root) / subdir),
+                                              args.overlays, os.path.join(args.output_dir, "overlays"))
 
     rows = [{"dataset": r["dataset"], "class": c, "n": n}
             for r in reports for c, n in r.get("class_counts", {}).items()]

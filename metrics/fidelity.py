@@ -52,7 +52,9 @@ class FidelityMetrics:
     Parameters
     ----------
     mask_mode : str
-        'zero' to replace masked pixels with 0.
+        Inputs are [0, 1] pixels (models normalise internally), so baselines
+        are defined identically for every model:
+        'zero' to replace masked pixels with 0 (black).
         'mean' to replace masked pixels with the image per-channel mean.
         'blur' to replace masked pixels with a Gaussian-blurred copy of the
                image (kernel 51 px, sigma 10 px; Petsiuk et al., 2018).

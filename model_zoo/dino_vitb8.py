@@ -32,6 +32,7 @@ import timm
 import torch
 import torch.nn as nn
 
+from .normalize import PixelNormalize
 from .specs import MODEL_SPECS
 
 TIMM_ID    = MODEL_SPECS["dino_vitb8"].timm_id
@@ -59,6 +60,8 @@ class DINOViTB8(nn.Module):
 
     def __init__(self, num_classes: int = 0, pretrained: bool = True):
         super().__init__()
+        # Pre-training normalisation, applied inside the model (pixel-space protocol)
+        self.normalize = PixelNormalize(MODEL_SPECS["dino_vitb8"].mean, MODEL_SPECS["dino_vitb8"].std)
         self.backbone = timm.create_model(
             TIMM_ID if pretrained else ARCH,
             pretrained=pretrained,
@@ -74,7 +77,7 @@ class DINOViTB8(nn.Module):
         self.num_classes = num_classes
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return self.backbone(x)
+        return self.backbone(self.normalize(x))
 
 
 def load_dino_vitb8(num_classes: int = 0, pretrained: bool = True) -> DINOViTB8:
