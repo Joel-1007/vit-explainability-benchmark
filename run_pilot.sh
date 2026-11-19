@@ -32,6 +32,14 @@ RISE_N_MASKS=100                # Reduced from 4000 (40× faster)
 CHECKPOINT_DIR="results/pilot"
 OUTPUT_DIR="results/pilot/phase4"
 DATA_ROOT=${DATA_ROOT:-"/data"}
+# Fine-tuned checkpoints. If unset, the pilot uses random heads: this tests
+# the pipeline only — the numbers are meaningless.
+WEIGHTS_DIR=${WEIGHTS_DIR:-""}
+if [ -n "$WEIGHTS_DIR" ]; then
+    WEIGHT_ARGS=(--weights-dir "$WEIGHTS_DIR")
+else
+    WEIGHT_ARGS=(--allow-random-head)
+fi
 SKIP_TESTS=${1:-""}
 
 echo ""
@@ -102,7 +110,7 @@ uv run python run_phase3.py \
     --seed "$SEED" \
     --max-batches "$MAX_BATCHES" \
     --norm-mode minmax \
-    --patch-size 16
+    "${WEIGHT_ARGS[@]}"
 
 echo ""
 echo "[Phase 4] Running analytics on pilot results..."

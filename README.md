@@ -100,6 +100,17 @@ python run_phase3.py --data-root /path/to/datasets \
 
 The benchmark automatically checkpoints each `(dataset, model, explainer)` combination as a `.pkl` file, so interrupted runs can be resumed seamlessly.
 
+**Fine-tuned weights.** Each dataset needs its own fine-tuned model. Pass `--weights-dir DIR` containing `{model}_{dataset}.pth` or the trainer's `{model}_ft_{dataset}_*.pth` files. A missing checkpoint is an error; `--allow-random-head` skips that check for pipeline smoke tests only (results are meaningless).
+
+**Dataset layout** under `--data-root` (masks are loaded alongside images; see [utils/eval_datasets.py](utils/eval_datasets.py) for class orders):
+
+```
+cub200/         images/<class>/*.jpg, segmentations/<class>/*.png, images.txt, train_test_split.txt
+voc2012/        JPEGImages/, SegmentationClass/, ImageSets/Segmentation/val.txt
+imagenet_s50/   validation/<wnid>/*.JPEG + masks (beside images or in validation-segmentation/)
+nih_chestxray/  images/*.png, BBox_List_2017.csv
+```
+
 ### Usage Example: Single Evaluation Loop
 
 ```python

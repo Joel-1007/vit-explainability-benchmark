@@ -9,6 +9,8 @@ set -euo pipefail
 SEED=42
 CHECKPOINT_DIR="results/phase3"
 DATA_ROOT=${DATA_ROOT:-"/data"}
+# Fine-tuned checkpoints: {model}_{dataset}.pth or {model}_ft_{dataset}_*.pth
+WEIGHTS_DIR=${WEIGHTS_DIR:-"checkpoints"}
 OUTPUT_DIR="results/phase4"
 
 echo "================================================="
@@ -35,8 +37,8 @@ uv run python run_phase3.py \
   --data-root "$DATA_ROOT" \
   --checkpoint-dir "$CHECKPOINT_DIR" \
   --seed $SEED \
-  --norm-mode percentile \
-  --patch-size 16
+  --weights-dir "$WEIGHTS_DIR" \
+  --norm-mode percentile
 
 echo "[4/4] Generating Analytical Artifacts (Phase 4)"
 mkdir -p "$OUTPUT_DIR"

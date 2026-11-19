@@ -60,6 +60,7 @@ from .robustness   import RobustnessMetrics
 from .causal_fidelity import CausalMaskingMetric
 from .adversarial_robustness import PGDRobustnessMetric
 from .normalize    import normalize_attribution
+from explainers.base import UnsupportedArchitectureError
 
 log = logging.getLogger(__name__)
 
@@ -501,9 +502,16 @@ class Phase3Runner:
                         )
                         continue
 
-                    results = self._run_combination(
-                        key, explainer, loader, ckpt_path, max_batches
-                    )
+                    try:
+                        results = self._run_combination(
+                            key, explainer, loader, ckpt_path, max_batches
+                        )
+                    except UnsupportedArchitectureError as exc:
+                        # e.g. attention-based explainers on Swin-B (no CLS token).
+                        # No checkpoint is written, so this is not "completed".
+                        log.warning(f"Skipping {key}: {exc}")
+                        print(f"  ✗  Unsupported: {key}")
+                        continue
                     all_results[key] = results
 
         return all_results
