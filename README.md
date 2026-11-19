@@ -105,6 +105,8 @@ The benchmark automatically checkpoints each `(dataset, model, explainer)` combi
 
 **Ablations (Phase 4, A1–A4).** `--ablations` adds the raw-attention variants for A1 (patch- vs CLS-token attention) and A2 (last 3 / all layers; rollout), and computes fidelity with zero and blur masking for A3 (columns suffixed `[zero]`/`[blur]`). A4 compares `vit_b16` with `mae_b16` (MAE pre-training, same architecture): add `--models vit_b16 mae_b16` and fine-tuned MAE weights. `scripts/phase4_ablations.py` reports means, stds, Cohen's d, Wilcoxon and Bonferroni p-values; ablation rows and columns are excluded from the main correlation, factor and ranking analyses. `--metrics ... adversarial` adds PGD robustness (ε = 0.03 in pixel units) on the robustness subset.
 
+**Seeds, statistics, coverage.** `--finetune-seeds 0 1 2` evaluates one fine-tuned checkpoint per seed (`seed_summary.csv` gives across-seed std). `scripts/compare_explainers.py` runs paired explainer comparisons with effect sizes and Holm correction; `class_summary.csv` and `*_macro` columns expose class imbalance; `coverage.csv` marks unsupported explainer–model pairs instead of scoring them. `scripts/audit_datasets.py --data-root DIR` audits splits, labels, annotations and NIH patient leakage.
+
 **Fine-tuned weights.** Each dataset needs its own fine-tuned model. Pass `--weights-dir DIR` containing `{model}_{dataset}.pth` or the trainer's `{model}_ft_{dataset}_*.pth` files. A missing checkpoint is an error; `--allow-random-head` skips that check for pipeline smoke tests only (results are meaningless).
 
 **Dataset layout** under `--data-root` (masks are loaded alongside images; see [utils/eval_datasets.py](utils/eval_datasets.py) for class orders):

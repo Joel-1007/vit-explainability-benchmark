@@ -248,9 +248,17 @@ class NIHBBoxEval(_MaskedDataset):
     (BBox_List_2017.csv, ~880 images / 984 boxes). One sample per
     (image, finding); the mask is the union of that finding's boxes.
     Only these images have localization ground truth.
+
+    Patient-level leakage guard: NIH images of the same patient share the
+    filename prefix ``<patient>_<follow-up>.png``. If ``train_val_list.txt``
+    is present, box images whose *patient* appears in it are excluded (the
+    fine-tuned model may have seen that patient). Exclusions are recorded in
+    ``self.leakage`` and logged; ``require_split=True`` makes a missing
+    train_val_list an error.
     """
 
-    def __init__(self, root: str | Path, transform: Optional[Callable] = None) -> None:
+    def __init__(self, root: str | Path, transform: Optional[Callable] = None,
+                 exclude_train_patients: bool = True, require_split: bool = False) -> None:
         super().__init__(transform)
         import pandas as pd
 
@@ -269,7 +277,27 @@ class NIHBBoxEval(_MaskedDataset):
             boxes.setdefault(key, []).append(
                 (float(r[x_col]), float(r[y_col]), float(r[w_col]), float(r[h_col]))
             )
-        self.samples = [(img, label, b) for (img, label), b in sorted(boxes.items())]
+        samples = [(img, label, b) for (img, label), b in sorted(boxes.items())]
+
+        self.leakage = {"checked": False, "excluded_samples": 0, "excluded_patients": []}
+        split_file = self.root / "train_val_list.txt"
+        if exclude_train_patients and split_file.exists():
+            train_patients = {nih_patient_id(l.strip())
+                              for l in split_file.read_text().splitlines() if l.strip()}
+            leaky = sorted({nih_patient_id(img) for img, _, _ in samples} & train_patients)
+            samples = [s for s in samples if nih_patient_id(s[0]) not in train_patients]
+            self.leakage = {"checked": True, "excluded_patients": leaky,
+                            "excluded_samples": len(boxes) - len(samples)}
+            if leaky:
+                import warnings
+                warnings.warn(
+                    f"NIH: excluded {self.leakage['excluded_samples']} box samples from "
+                    f"{len(leaky)} patients that also appear in train_val_list.txt",
+                    RuntimeWarning, stacklevel=2,
+                )
+        elif require_split:
+            raise FileNotFoundError(f"{split_file} not found; cannot check patient leakage")
+        self.samples = samples
 
     def _load(self, idx):
         img_name, label, boxes = self.samples[idx]
@@ -280,6 +308,11 @@ class NIHBBoxEval(_MaskedDataset):
             x1, y1 = min(int(round(x + w)), img.width), min(int(round(y + h)), img.height)
             mask[y0:y1, x0:x1] = 1
         return img, label, mask
+
+
+def nih_patient_id(image_name: str) -> str:
+    """'00000013_005.png' → '00000013' (NIH filenames are <patient>_<follow-up>)."""
+    return Path(image_name).name.split("_", 1)[0]
 
 
 # ---------------------------------------------------------------------------

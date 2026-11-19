@@ -26,6 +26,13 @@ Config dict keys (all optional — defaults match §5.1)
   dataset          str     "cub200"
   num_classes      int     (required)
   model_name       str     (required — for checkpoint naming)
+  seed             int     None       (fine-tuning seed; added to the checkpoint
+                                       name as ``_seed{N}`` so several seeds per
+                                       (model, dataset) can coexist)
+
+Seeds: call ``set_seed(seed)`` *before* building the model (head initialisation)
+and the DataLoaders; ``fine_tune`` re-seeds at its start for data order,
+augmentation, Mixup and drop-path.
 """
 
 from __future__ import annotations
@@ -76,6 +83,26 @@ def _accuracy(output: torch.Tensor, target: torch.Tensor, topk=(1,)):
 # Core
 # ---------------------------------------------------------------------------
 
+def set_seed(seed: int) -> None:
+    """Seed Python, NumPy and PyTorch (CPU and CUDA) RNGs."""
+    import random
+
+    import numpy as np
+
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+
+
+def checkpoint_name(model_name: str, dataset: str, epoch: int,
+                    seed: int | None = None, date: str | None = None) -> str:
+    """``{model}_ft_{dataset}[_seed{N}]_{YYYYMMDD}_ep{NNN}.pth`` (read by run_phase3)."""
+    date = date or datetime.datetime.now().strftime("%Y%m%d")
+    seed_part = f"_seed{seed}" if seed is not None else ""
+    return f"{model_name}_ft_{dataset}{seed_part}_{date}_ep{epoch:03d}.pth"
+
+
 def fine_tune(
     model: nn.Module,
     train_loader: torch.utils.data.DataLoader,
@@ -111,6 +138,9 @@ def fine_tune(
     dataset      = config.get("dataset",       "cub200")
     num_classes  = config["num_classes"]
     model_name   = config["model_name"]
+    seed         = config.get("seed")
+    if seed is not None:
+        set_seed(seed)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model  = model.to(device)
@@ -208,12 +238,12 @@ def fine_tune(
         # ---------------------------------------------------------------
         # Save checkpoint + record hash
         # ---------------------------------------------------------------
-        timestamp   = datetime.datetime.now().strftime("%Y%m%d")
-        ckpt_name   = f"{model_name}_ft_{dataset}_{timestamp}_ep{epoch+1:03d}.pth"
+        ckpt_name   = checkpoint_name(model_name, dataset, epoch + 1, seed=seed)
         ckpt_path   = os.path.join(save_dir, ckpt_name)
         metadata    = {
             "model_name": model_name,
             "dataset":    dataset,
+            "seed":       seed,
             "epoch":      epoch + 1,
             "num_epochs": num_epochs,
             "top1_acc":   f"{top1.item():.4f}",

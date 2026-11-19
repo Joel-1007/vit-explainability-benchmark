@@ -150,6 +150,18 @@ resampling (`utils/eval_datasets.py`).
 > are small, so report per-finding results with their confidence intervals.
 > The fourth dataset is NIH ChestX-ray14 throughout; CheXpert/CheXlocalize is only
 > discussed as an alternative in `docs/dataset_sources.md`.
+>
+> **Patient-level separation.** NIH filenames are `<patient>_<follow-up>.png`.
+> `verify_datasets.py` checks that no patient is in both `train_val_list.txt` and
+> `test_list.txt`, and that no box (localization) patient is in the training list;
+> the evaluation loader additionally drops box images of any patient found in
+> `train_val_list.txt` and records them (`dataset_audit.json` → `patient_leakage`).
+> NIH fine-tuning must use `train_val_list.txt` only.
+
+**Protocol audit.** `scripts/audit_datasets.py --data-root DIR` reports, per dataset, the
+evaluation split and population, expected vs present classes with per-class counts and
+the imbalance ratio, and GT statistics (empty-mask fraction, GT area, ignore area);
+it exits non-zero on blocking issues. `run_benchmark.sh` runs it before Phase 3.
 
 > **VOC labels.** VOC images often contain several objects; each image is labelled with
 > its dominant class (most segmented pixels) and the GT mask covers that class only.
@@ -189,10 +201,26 @@ Current test run (2026-11-19, CPU, Python 3.13.8 / PyTorch 2.15.0):
 **300 passed, 2 skipped (CUDA), 0 failed** (`uv run pytest`). Result blocks below dated
 2026-04-10 were recorded under Python 3.11.8 / PyTorch 2.10.0 and are kept as history.
 
-**Seeds and uncertainty.** Each (model, dataset) pair currently has a single fine-tuned
-checkpoint, so architecture effects are confounded with fine-tuning-seed variance.
-`combination_summary.csv` reports 95% bootstrap CIs over samples; seed variance needs
-several fine-tuning seeds per pair (planned).
+**Seeds and uncertainty.** With a single fine-tuned checkpoint per (model, dataset),
+architecture effects are confounded with fine-tuning-seed variance. The pipeline
+supports several seeds end to end: fine-tune with `--seed N` (`training.set_seed`,
+checkpoints named `{model}_ft_{dataset}_seed{N}_*.pth`), evaluate with
+`run_phase3.py --finetune-seeds 0 1 2` (or `FINETUNE_SEEDS="0 1 2" bash run_benchmark.sh`).
+`seed_summary.csv` then reports, per combination, the mean and the **across-seed std**
+of every primary metric; per-seed rows stay in `combination_summary.csv` (with 95%
+bootstrap CIs over samples) and ablation/explainer comparisons pair samples within a seed.
+
+**Statistical reporting.** `scripts/compare_explainers.py` compares every explainer pair on
+the same images per (dataset, model, seed, metric): mean difference with bootstrap CI,
+Cohen's d and paired d_z, Wilcoxon signed-rank, and Holm-adjusted p-values within each
+family and globally (`explainer_pairwise.csv`). Class imbalance: `class_summary.csv`
+(per-class n, share, accuracy, metrics) and `<metric>_macro` / `accuracy_macro` columns
+(class-balanced means) in `combination_summary.csv`.
+
+**Coverage.** Explainer–model incompatibilities (e.g. attention methods on Swin-B) are
+written as `<key>.unsupported.json` with the reason; `coverage.csv` lists every expected
+combination as ok / unsupported / missing. Such combinations have no rows in any summary,
+so they can never appear as zero scores.
 
 ---
 

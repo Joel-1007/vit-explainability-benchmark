@@ -161,19 +161,27 @@ MODEL_GRID_PATCH = {
 }
 
 
-def find_weights(weights_dir: str | None, model_name: str, dataset: str) -> Path | None:
+SEED_TAG = "@seed"   # model name in checkpoint keys: "vit_b16@seed1"
+
+
+def find_weights(weights_dir: str | None, model_name: str, dataset: str,
+                 seed: int | None = None) -> Path | None:
     """
-    Fine-tuned checkpoint for (model, dataset) in ``weights_dir``:
-    ``{model}_{dataset}.pth`` if present, else the newest file matching the
-    trainer's naming ``{model}_ft_{dataset}_{YYYYMMDD}_ep{NNN}.pth``.
+    Fine-tuned checkpoint for (model, dataset[, seed]) in ``weights_dir``:
+    ``{model}_{dataset}[_seed{N}].pth`` if present, else the newest file with
+    the trainer's naming ``{model}_ft_{dataset}[_seed{N}]_{YYYYMMDD}_ep{NNN}.pth``.
+    Without ``seed``, seed-tagged files are ignored.
     """
     if not weights_dir:
         return None
     d = Path(weights_dir)
-    exact = d / f"{model_name}_{dataset}.pth"
+    tag = f"_seed{seed}" if seed is not None else ""
+    exact = d / f"{model_name}_{dataset}{tag}.pth"
     if exact.exists():
         return exact
-    matches = sorted(d.glob(f"{model_name}_ft_{dataset}_*.pth"))
+    matches = sorted(d.glob(f"{model_name}_ft_{dataset}{tag}_*.pth"))
+    if seed is None:
+        matches = [m for m in matches if "_seed" not in m.name]
     return matches[-1] if matches else None
 
 
@@ -182,6 +190,7 @@ def load_finetuned_model(
     dataset: str,
     weights_dir: str | None,
     allow_random_head: bool = False,
+    seed: int | None = None,
 ) -> nn.Module:
     """
     Build ``model_name`` with a head sized for ``dataset`` and load its
@@ -190,9 +199,10 @@ def load_finetuned_model(
     """
     num_classes = NUM_CLASSES[dataset]
     model = load_model(model_name, num_classes=num_classes, pretrained=True)
-    ckpt = find_weights(weights_dir, model_name, dataset)
+    ckpt = find_weights(weights_dir, model_name, dataset, seed)
     if ckpt is None:
-        msg = (f"No fine-tuned weights for {model_name} on {dataset} in "
+        seed_txt = f" (seed {seed})" if seed is not None else ""
+        msg = (f"No fine-tuned weights for {model_name} on {dataset}{seed_txt} in "
                f"--weights-dir={weights_dir!r}")
         if not allow_random_head:
             raise FileNotFoundError(msg + " (pass --allow-random-head for smoke tests only)")
@@ -230,6 +240,7 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
             "norm_mode": args.norm_mode,
             "patch_size": args.patch_size,
             "weights_dir": args.weights_dir,
+            "finetune_seeds": args.finetune_seeds,
             "allow_random_head": args.allow_random_head,
             "metrics": args.metrics,
             "robustness_subset": args.robustness_subset,
@@ -365,6 +376,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Directory with fine-tuned checkpoints, named {model}_{dataset}.pth "
              "or {model}_ft_{dataset}_*.pth (trainer output). Required unless "
              "--allow-random-head.",
+    )
+    p.add_argument(
+        "--finetune-seeds", type=int, nargs="+", default=None, metavar="SEED",
+        help="Evaluate one fine-tuned checkpoint per seed ({model}_{dataset}_seed{N}.pth "
+             "or {model}_ft_{dataset}_seed{N}_*.pth) to measure seed variance. "
+             "Default: a single unseeded checkpoint per (model, dataset).",
     )
     p.add_argument(
         "--allow-random-head", action="store_true",
@@ -522,15 +539,20 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed,
     )
 
+    seeds = args.finetune_seeds or [None]
+    runs = [(m, sd) for m in args.models for sd in seeds]
     for ds_name, loader in datasets.items():
-        for model_name in args.models:
+        for base_model, ft_seed in runs:
+            # Checkpoint keys carry the seed: "cub200-vit_b16@seed1-gradcam"
+            model_name = base_model if ft_seed is None else f"{base_model}{SEED_TAG}{ft_seed}"
             keys = [f"{ds_name}-{model_name}-{e}" for e in explainers]
-            if all((Path(args.checkpoint_dir) / f"{k}.pkl").exists() for k in keys):
-                log.info(f"  ↩ {ds_name}/{model_name}: all explainers checkpointed — skipping")
+            if all(Phase3Runner.combination_done(args.checkpoint_dir, k) for k in keys):
+                log.info(f"  ↩ {ds_name}/{model_name}: all explainers done — skipping")
                 continue
             try:
                 model = load_finetuned_model(
-                    model_name, ds_name, args.weights_dir, args.allow_random_head,
+                    base_model, ds_name, args.weights_dir, args.allow_random_head,
+                    seed=ft_seed,
                 )
             except Exception as e:
                 log.error(f"  ✗ {model_name}/{ds_name}: {e}")
@@ -543,7 +565,7 @@ def main(argv: list[str] | None = None) -> None:
                 datasets={ds_name: loader},
                 device=device,
                 norm_mode=args.norm_mode,
-                patch_size=args.patch_size or MODEL_GRID_PATCH[model_name],
+                patch_size=args.patch_size or MODEL_GRID_PATCH[base_model],
                 metric_computer=metric_computer,
             )
             results.update(runner.run(

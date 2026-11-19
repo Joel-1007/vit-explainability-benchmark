@@ -173,6 +173,11 @@ def main(args: argparse.Namespace) -> None:
     # ------------------------------------------------------------------
     # [1] Load model
     # ------------------------------------------------------------------
+    if args.seed is not None:
+        from training.trainer import set_seed
+        set_seed(args.seed)          # before the head is initialised
+        log.info(f"  Seed: {args.seed}")
+
     log.info("Checklist [1] Loading ViT-B/16 pre-trained weights …")
     try:
         model = load_model("vit_b16", num_classes=0, pretrained=True)
@@ -215,6 +220,7 @@ def main(args: argparse.Namespace) -> None:
         "amp":           not args.no_amp,
         "save_dir":      args.save_dir,
         "log_every":     20,
+        "seed":          args.seed,
     }
 
     log.info("Checklist [3–6] Running 5-epoch pilot …")
@@ -298,6 +304,12 @@ if __name__ == "__main__":
         "--save_dir",
         default="checkpoints/pilot",
         help="Directory to save pilot checkpoint and hash log.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Fine-tuning seed (repeat with several seeds to measure seed variance).",
     )
     parser.add_argument(
         "--no_amp",
