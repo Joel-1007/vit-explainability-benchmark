@@ -1,6 +1,6 @@
 # ViT Explainability Benchmark
 
-**A Comprehensive, Axiomatically-Grounded Explainability Benchmark for Vision Transformers**
+**On the Trustworthiness of Explainability Evaluation Metrics for Vision Transformers**
 
 > **Target Venue:** IEEE Transactions on Pattern Analysis and Machine Intelligence (TPAMI)  
 > **Status:** Phases 1–3 code complete · Phase 3 computational run pending · Phase 4 analysis scripts ready
