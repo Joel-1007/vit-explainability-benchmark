@@ -137,7 +137,7 @@ Runs two "sanity check" experiments that test whether the explainers are actuall
 4. Compare the explanation to the explanation from the *real* model using Spearman ρ
 5. A good explainer should produce *very different* explanations when the model is randomised. If the explanations look the same, the explainer is not actually capturing learned behaviour — it's just a function of the input image's pixel structure
 
-**R3 — Label Randomisation:**
+**R3 — Head Permutation (formerly "Label Randomisation"; no retraining):**
 1. Train a model on shuffled labels (the model memorises random label assignments)
 2. Run each explainer on this "junk" model
 3. A good explainer should produce different (likely worse) explanations compared to the properly trained model
@@ -156,7 +156,7 @@ The time cost comes from re-running the explainers on the randomised models. You
 | Sub-test | Samples | Explainer cost | Overhead | Total |
 |----------|---------|----------------|----------|-------|
 | R2 (model randomisation) | ~10K per dataset | Same as full benchmark but on fewer samples | ~40–50% of full benchmark time | ~50–70 hrs |
-| R3 (label randomisation) | ~10K per dataset | Same | Requires training on shuffled labels first (~5 hrs extra) | ~35–60 hrs |
+| R3 (head permutation) | ~10K per dataset | Same | No retraining: the trained head is column-permuted (see BENCHMARK.md §2.3 R3) |
 
 ### Rerun policy: **Same checkpointing as full benchmark**
 

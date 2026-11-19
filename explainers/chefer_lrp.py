@@ -49,6 +49,7 @@ from .base import (
     _get_timm_blocks,
     _has_cls_token,
     _to_patch_grid,
+    _num_prefix_tokens,
 )
 
 
@@ -186,6 +187,6 @@ class CheferLRPExplainer(BaseExplainer):
             rollout = cam @ rollout
 
         # CLS row → patch tokens
-        cls_row = rollout[0, 1:]   # (N,)
+        cls_row = rollout[0, _num_prefix_tokens(self.model, rollout.shape[-1]):]   # (N,)
         P       = self.img_size // self.patch_size
         return _to_patch_grid(cls_row, P)

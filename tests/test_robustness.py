@@ -197,7 +197,7 @@ def R04_compute_all_keys():
     result = rm_default.compute_all(
         explainer, model, image, att_orig, att_rand, att_shuf
     )
-    expected_keys = {"max_sensitivity", "model_randomisation", "label_randomisation"}
+    expected_keys = {"max_sensitivity", "model_randomisation", "head_permutation"}
     assert set(result.keys()) == expected_keys, (
         f"compute_all keys mismatch: {set(result.keys())} vs {expected_keys}"
     )
@@ -205,7 +205,7 @@ def R04_compute_all_keys():
         f"R04 ✓  compute_all_keys  "
         f"(MaxSens={result['max_sensitivity']:.3f}, "
         f"ModelRand={result['model_randomisation']:.3f}, "
-        f"LabelRand={result['label_randomisation']:.3f})"
+        f"HeadPerm={result['head_permutation']:.3f})"
     )
 
 
@@ -367,11 +367,8 @@ def R10_label_rand_identical_maps():
 @_register
 def R11_randomise_model_changes_weights():
     """
-    randomise_model_weights() must change EVERY parameter of the model.
-
-    We verify that for each parameter in the randomised copy, it differs
-    from the original (with extremely high probability — N(0,1) vs a fixed
-    trained weight has zero probability of coincidence).
+    randomise_model_weights() must change every Linear parameter of the
+    model (weights and biases are redrawn by reset_parameters()).
     """
     model      = _TinyModel()
     rand_model = randomise_model_weights(model, seed=0)
@@ -639,6 +636,18 @@ def _run_all_tests() -> None:
 
     if failed:
         sys.exit(1)
+
+
+# ---------------------------------------------------------------------------
+# pytest collection: the registered T-functions are not named test_*, so
+# expose each one as a parametrised pytest case.
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("fn", [fn for _, fn in _TESTS], ids=[n for n, _ in _TESTS])
+def test_registered(fn):
+    fn()
 
 
 if __name__ == "__main__":

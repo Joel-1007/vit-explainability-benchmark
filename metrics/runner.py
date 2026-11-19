@@ -19,7 +19,7 @@ from metrics.localization import LocalizationMetrics
 from metrics.robustness import (
     RobustnessMetrics,
     randomise_model_weights,
-    randomise_classifier_labels,
+    permute_classifier_head,
 )
 
 # Localization only (Task 2.2, backward-compatible)
@@ -35,7 +35,7 @@ runner = BenchmarkRunner(
     explainer=my_explainer,
     robustness=rm,
     randomised_model=randomise_model_weights(model),
-    label_randomised_model=randomise_classifier_labels(model),
+    label_randomised_model=permute_classifier_head(model),
 )
 results = runner.evaluate(model, val_loader, dataset_name="cub200")
 # results["macro"]["miou"], results["macro"]["max_sensitivity"], etc.
@@ -60,6 +60,8 @@ from .robustness   import RobustnessMetrics
 from .causal_fidelity import CausalMaskingMetric
 from .adversarial_robustness import PGDRobustnessMetric
 from .normalize    import normalize_attribution
+from explainers.base import UnsupportedArchitectureError
+from .sample_metrics import SampleMetricComputer
 
 log = logging.getLogger(__name__)
 
@@ -85,7 +87,7 @@ class BenchmarkRunner:
     robustness : RobustnessMetrics | None
         When provided, R1–R3 are computed per sample and included in
         ``results["macro"]`` under keys 'max_sensitivity',
-        'model_randomisation', 'label_randomisation'.
+        'model_randomisation', 'head_permutation'.
         When None (default), R1–R3 are silently skipped and all
         existing behaviour is preserved unchanged.
     randomised_model : nn.Module | None
@@ -131,7 +133,7 @@ class BenchmarkRunner:
             if label_randomised_model is None:
                 log.warning(
                     "BenchmarkRunner: robustness is set but label_randomised_model "
-                    "is None.  R3 (LabelRand) will be skipped."
+                    "is None.  R3 (HeadPerm) will be skipped."
                 )
 
     # ------------------------------------------------------------------
@@ -211,9 +213,10 @@ class BenchmarkRunner:
 
                     # --- Optional C1–C3 per sample -------------------------
                     if self.complexity is not None:
-                        c_scores = self.complexity.compute_all(att)
+                        c_scores = self.complexity.compute(att).to_dict()
                         for k, v in c_scores.items():
-                            all_metrics[k].append(v)
+                            if isinstance(v, (int, float)):
+                                all_metrics[k].append(v)
 
                     # --- Optional R1–R3 per sample -------------------------
                     if self.robustness is not None:
@@ -249,8 +252,8 @@ class BenchmarkRunner:
                                 if isinstance(att_shuf_list, (list, tuple))
                                 else att_shuf_list.cpu()
                             )
-                            r3 = self.robustness.label_randomisation(att, att_shuf)
-                            all_metrics["label_randomisation"].append(r3)
+                            r3 = self.robustness.head_permutation(att, att_shuf)
+                            all_metrics["head_permutation"].append(r3)
 
                     # --- New Metrics: Causal Fidelity & Adversarial Robustness ---
                     if self.causal_fidelity is not None:
@@ -323,7 +326,7 @@ class BenchmarkRunner:
             + (
                 f" | MaxSens={macro.get('max_sensitivity', float('nan')):.4f}"
                 f" | ModelRand={macro.get('model_randomisation', float('nan')):.4f}"
-                f" | LabelRand={macro.get('label_randomisation', float('nan')):.4f}"
+                f" | HeadPerm={macro.get('head_permutation', float('nan')):.4f}"
                 if self.robustness is not None else ""
             )
             + (
@@ -416,8 +419,13 @@ class Phase3Runner:
         device:     "str | torch.device | None" = None,
         norm_mode:  str  = "minmax",
         patch_size: int  = 16,
+        metric_computer: Optional[SampleMetricComputer] = None,
     ) -> None:
         self.models     = models
+        # When set, per-sample metrics (L1–L3, C, F, R, correctness) are
+        # computed while model and image are in memory and stored in the
+        # checkpoint under 'metrics'. None = attributions only.
+        self.metric_computer = metric_computer
         self.explainers = explainers
         self.datasets   = datasets
         self.device     = torch.device(device) if isinstance(device, str) else (
@@ -501,9 +509,17 @@ class Phase3Runner:
                         )
                         continue
 
-                    results = self._run_combination(
-                        key, explainer, loader, ckpt_path, max_batches
-                    )
+                    try:
+                        results = self._run_combination(
+                            key, explainer, loader, ckpt_path, max_batches,
+                            names=(ds_name, model_name, exp_name),
+                        )
+                    except UnsupportedArchitectureError as exc:
+                        # e.g. attention-based explainers on Swin-B (no CLS token).
+                        # No checkpoint is written, so this is not "completed".
+                        log.warning(f"Skipping {key}: {exc}")
+                        print(f"  ✗  Unsupported: {key}")
+                        continue
                     all_results[key] = results
 
         return all_results
@@ -519,6 +535,7 @@ class Phase3Runner:
         loader:      "torch.utils.data.DataLoader",
         ckpt_path:   Path,
         max_batches: Optional[int],
+        names:       Optional[tuple] = None,
     ) -> Dict[str, Any]:
         """
         Run one (dataset, model, explainer) combination.
@@ -544,7 +561,10 @@ class Phase3Runner:
         attributions: List[torch.Tensor] = []
         labels_list:  List[int]          = []
         gt_masks_list: List[Any]         = []
+        metrics_list: List[Dict[str, float]] = []
         n_samples = 0
+        bound = (self.metric_computer.bind(explainer)
+                 if self.metric_computer is not None else None)
 
         with torch.no_grad():
             batch_iter = tqdm(loader, desc=key, position=3, leave=False)
@@ -583,6 +603,9 @@ class Phase3Runner:
                         gt_mask[i].cpu() if gt_mask is not None else None
                     )
 
+                if bound is not None:
+                    metrics_list.extend(bound.compute_batch(x, y, gt_mask, att_norm))
+
                 n_samples += B
                 batch_iter.set_postfix(n=n_samples)
 
@@ -594,6 +617,11 @@ class Phase3Runner:
             "gt_masks":     gt_masks_list,
             "norm_mode":    self.norm_mode,
         }
+        if names is not None:
+            results.update(dict(zip(("dataset", "model", "explainer"), names)))
+        if bound is not None:
+            results["metrics"] = metrics_list
+            results["metric_config"] = self.metric_computer.config()
 
         # Atomic write: write to tmp then rename
         tmp_path = ckpt_path.with_suffix(".pkl.tmp")
@@ -719,9 +747,10 @@ def _cli_main(argv: Optional[List[str]] = None) -> None:
         f"  patch-size     : {args.patch_size}\n"
     )
     print(
-        "Note: call Phase3Runner(...).run() from Python to supply actual\n"
-        "models, explainers, and datasets. The CLI shows all options and\n"
-        "validates flags; dataset/model loading requires user-side Python.\n"
+        "Note: this CLI does NOT run an evaluation — it has no models,\n"
+        "explainers or datasets. To run the benchmark use:\n"
+        "    python run_phase3.py --data-root /path/to/datasets\n"
+        "Use this CLI only for --list-checkpoints.\n"
     )
 
 

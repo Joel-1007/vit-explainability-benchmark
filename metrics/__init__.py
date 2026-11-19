@@ -23,9 +23,10 @@ Localization
     LocalizationMetrics          L1 mIoU, L2 Pointing Game, L3 EGT, L4 CalibGap
 
 Robustness
-    RobustnessMetrics            R1 MaxSens, R2 ModelRand, R3 LabelRand
+    RobustnessMetrics            R1 MaxSens, R2 ModelRand, R3 HeadPerm
     randomise_model_weights      Utility: deep-copy with N(0,1) weights
-    randomise_classifier_labels  Utility: deep-copy with permuted head columns
+    permute_classifier_head      Utility: deep-copy with permuted head columns
+                                 (alias randomise_classifier_labels)
 
 Complexity
     ComplexityMetrics            C1 Gini, C2 Entropy, C3 EMR — unified class
@@ -89,6 +90,7 @@ try:
         RobustnessMetrics,
         randomise_model_weights,
         randomise_classifier_labels,
+        permute_classifier_head,
         randomise_model_cascade,   # Task 2.3 addendum — cascading layer utility
     )
     from .causal_fidelity import CausalMaskingMetric
@@ -133,5 +135,6 @@ __all__ = [
     "RobustnessMetrics",
     "randomise_model_weights",
     "randomise_classifier_labels",
+    "permute_classifier_head",
     "randomise_model_cascade",     # Task 2.3 addendum
 ]

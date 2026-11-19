@@ -154,6 +154,10 @@ class AxiomTestResult:
 # AxiomVerifier
 # ---------------------------------------------------------------------------
 
+# Metrics whose axiom-table entries are theoretical (no synthetic test possible)
+THEORETICAL_ONLY = ("F1", "F2", "F3", "L4", "R1", "R2", "R3")
+
+
 class AxiomVerifier:
     """
     Empirically verifies axiomatic sensitivity of benchmark metrics on
@@ -495,36 +499,30 @@ class AxiomVerifier:
 
     def _get_all_metric_wrappers(self) -> List[tuple]:
         """
-        Full 13-metric wrapper list (requires self.ms MetricSuite).
+        Empirically testable metrics: L1–L3 (on a √N × √N patch grid with the
+        top quarter as GT) and C1–C3.
 
-        Toy GT mask for localization metrics: top quarter is GT region.
+        F1–F3 and R1–R3 need a trained image classifier and L4 needs a
+        dataset of correct/incorrect predictions, so they cannot be evaluated
+        on the 1-D synthetic models used here; their rows in the satisfaction
+        table are theoretical (see ``THEORETICAL_ONLY``).
         """
-        from metrics.complexity import (
-            gini_coefficient,
-            attribution_entropy,
-            effective_mass_ratio,
-        )
+        import torch
+        from metrics.localization import LocalizationMetrics
 
-        gt_mask = np.zeros(self.n)
-        gt_mask[: self.n // 4] = 1.0
+        side = int(round(self.n ** 0.5))
+        if side * side != self.n:
+            raise ValueError(f"n_patches={self.n} must be a perfect square for L1–L3")
+        gt = torch.zeros(side, side, dtype=torch.long)
+        gt[: max(1, side // 4)] = 1                       # top quarter of rows
+        loc = LocalizationMetrics(seed=0)
+        grid = lambda e: torch.as_tensor(np.asarray(e, dtype=np.float32)).view(side, side)  # noqa: E731
 
         return [
-            ("F1-InsertionAUC",      lambda e, x, m: self.ms.fidelity.insertion_auc(x, e),             True),
-            ("F2-DeletionAUC",       lambda e, x, m: self.ms.fidelity.deletion_auc(x, e),              False),
-            ("F3-Comprehensiveness", lambda e, x, m: self.ms.fidelity.comprehensiveness(x, e, k_frac=0.2), True),
-            ("F4-LogOddsShift",      lambda e, x, m: self.ms.fidelity.log_odds_shift(x, e),             True),
-            ("L1-IoU",               lambda e, x, m: self.ms.localization.iou(e, gt_mask),              True),
-            ("L2-PointingGame",      lambda e, x, m: self.ms.localization.pointing_game(e, gt_mask),    True),
-            ("L3-EnergyOnGT",        lambda e, x, m: self.ms.localization.energy_on_gt(e, gt_mask),     True),
-            ("L4-CalibGap",          lambda e, x, m: self.ms.localization.calibration_gap(e, gt_mask),  True),
-            ("R1-MaxSens",           lambda e, x, m: self.ms.robustness.max_sensitivity(e, x, m),       False),
-            ("R2-AvgSens",           lambda e, x, m: self.ms.robustness.avg_sensitivity(e, x, m),       False),
-            ("R3-ParamRand",         lambda e, x, m: self.ms.robustness.param_randomisation(e, x, m),   False),
-            ("R4-LabelRand",         lambda e, x, m: self.ms.robustness.label_randomisation(e, x, m),   False),
-            ("C1-Gini",              lambda e, x, m: gini_coefficient(e),                True),
-            ("C2-Entropy",           lambda e, x, m: attribution_entropy(e)["entropy_norm"], False),
-            ("C3-EMR90",             lambda e, x, m: effective_mass_ratio(e)["emr"],    False),
-        ]
+            ("L1-mIoU",          lambda e, x, m: loc.multi_threshold_iou(grid(e), gt)["miou"], True),
+            ("L2-PointingGame",  lambda e, x, m: loc.pointing_game(grid(e), gt),               True),
+            ("L3-EGT",           lambda e, x, m: loc.egt(grid(e), gt),                         True),
+        ] + self._get_complexity_metric_wrappers()
 
     # ------------------------------------------------------------------
     # Table builder
@@ -929,7 +927,7 @@ def generate_axiom_satisfaction_heatmap(
     output_path: str = "figures/axiom_satisfaction.pdf",
 ) -> None:
     """
-    Generate Figure F1: the 15×4 axiom satisfaction heatmap for the paper.
+    Generate Figure F1: the 13×4 axiom satisfaction heatmap for the paper.
 
     Colour scheme:
         mediumseagreen  — ✓  (rewards compliance)
@@ -950,18 +948,16 @@ def generate_axiom_satisfaction_heatmap(
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     metrics = [
-        "F1 — Insertion AUC",
-        "F2 — Deletion AUC",
-        "F3 — Comprehensiveness",
-        "F4 — Log-odds shift",
-        "L1 — IoU with GT",
+        "F1 — Sufficiency",
+        "F2 — Comprehensiveness",
+        "F3 — Log-odds drop",
+        "L1 — mIoU",
         "L2 — Pointing Game",
-        "L3 — Energy on GT",
+        "L3 — EGT",
         "L4 — Calibration Gap",
         "R1 — Max-Sensitivity",
-        "R2 — Avg-Sensitivity",
-        "R3 — Param. Rand.",
-        "R4 — Label Rand.",
+        "R2 — Model Rand.",
+        "R3 — Head Perm.",
         "C1 — Gini",
         "C2 — Attribution Entropy",
         "C3 — Eff. Mass Ratio",
@@ -971,35 +967,31 @@ def generate_axiom_satisfaction_heatmap(
     # Encoding: 2=✓ (green), 1=∼ (gold), 0=✗ (white), -1=⊗ (steelblue)
     # Note: C1/C2/C3 × A3 encoded as 1 (gold) with dagger footnote
     data = [
-        [1,  0, 0, 0],   # F1
-        [1,  0, 0, 0],   # F2
-        [2,  1, 0, 0],   # F3
-        [2,  1, 0, 0],   # F4
+        [2,  0, 0, 0],   # F1  sufficiency (top-k keep; rank-only → blind to A2, T1)
+        [2,  0, 0, 0],   # F2  comprehensiveness (top-k drop)
+        [2,  0, 0, 0],   # F3  log-odds drop
         [1,  0, 0, 0],   # L1
         [0,  0, 0, 0],   # L2
-        [2,  0, 0, 0],   # L3
+        [2,  0, 0, 0],   # L3  (T2)
         [2,  0, 0, 0],   # L4
         [0,  0, 1, 0],   # R1
-        [0,  0, 1, 0],   # R2
+        [-1, 0, 0, 0],   # R2
         [-1, 0, 0, 0],   # R3
-        [-1, 0, 0, 0],   # R4
         [0,  0, 1, 0],   # C1  (∼†)
         [0,  0, 1, 0],   # C2  (∼†)
         [0,  0, 1, 0],   # C3  (∼†)
     ]
     symbols = [
-        ["∼",  "✗", "✗",  "✗"],   # F1
-        ["∼",  "✗", "✗",  "✗"],   # F2
-        ["✓",  "∼", "✗",  "✗"],   # F3
-        ["✓",  "∼", "✗",  "✗"],   # F4
+        ["✓",  "✗", "✗",  "✗"],   # F1
+        ["✓",  "✗", "✗",  "✗"],   # F2
+        ["✓",  "✗", "✗",  "✗"],   # F3
         ["∼",  "✗", "✗",  "✗"],   # L1
         ["✗",  "✗", "✗",  "✗"],   # L2
         ["✓",  "✗", "✗",  "✗"],   # L3
         ["✓",  "✗", "✗",  "✗"],   # L4
         ["✗",  "✗", "∼",  "✗"],   # R1
-        ["✗",  "✗", "∼",  "✗"],   # R2
+        ["⊗",  "✗", "✗",  "✗"],   # R2
         ["⊗",  "✗", "✗",  "✗"],   # R3
-        ["⊗",  "✗", "✗",  "✗"],   # R4
         ["✗",  "✗", "∼†", "✗"],   # C1
         ["✗",  "✗", "∼†", "✗"],   # C2
         ["✗",  "✗", "∼†", "✗"],   # C3
@@ -1007,7 +999,7 @@ def generate_axiom_satisfaction_heatmap(
 
     data_np = np.array(data)
     cmap = mcolors.ListedColormap(["white", "gold", "mediumseagreen"])
-    fig, ax = plt.subplots(figsize=(7.5, 9))
+    fig, ax = plt.subplots(figsize=(7.5, 8))
 
     standard = np.clip(data_np, 0, 2)
     ax.imshow(standard, cmap=cmap, vmin=0, vmax=2, aspect="auto")
@@ -1035,7 +1027,7 @@ def generate_axiom_satisfaction_heatmap(
     ax.set_xticklabels(axioms, rotation=30, ha="right", fontsize=9)
     ax.set_yticklabels(metrics, fontsize=9)
     ax.set_title(
-        "Axiom Sensitivity Table — 15 Metrics × 4 Axioms\n"
+        "Axiom Sensitivity Table — 13 Metrics × 4 Axioms\n"
         "(† anti-aligned: higher score rewards axiom violation)",
         fontsize=10,
     )

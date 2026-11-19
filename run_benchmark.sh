@@ -9,6 +9,8 @@ set -euo pipefail
 SEED=42
 CHECKPOINT_DIR="results/phase3"
 DATA_ROOT=${DATA_ROOT:-"/data"}
+# Fine-tuned checkpoints: {model}_{dataset}.pth or {model}_ft_{dataset}_*.pth
+WEIGHTS_DIR=${WEIGHTS_DIR:-"checkpoints"}
 OUTPUT_DIR="results/phase4"
 
 echo "================================================="
@@ -20,30 +22,50 @@ uv run pytest tests/ || { echo "Tests failed! Aborting."; exit 1; }
 
 echo "[2/4] Verifying Datasets"
 # Assumes structure matches config specs
-uv run python scripts/verify_datasets.py --data_root "$DATA_ROOT" --dataset cub200
-uv run python scripts/verify_datasets.py --data_root "$DATA_ROOT" --dataset voc
-uv run python scripts/verify_datasets.py --data_root "$DATA_ROOT" --dataset imagenet_s50
-uv run python scripts/verify_datasets.py --data_root "$DATA_ROOT" --dataset nih_chestxray
+# Paths match the layout run_phase3.py loads from ({DATA_ROOT}/cub200, voc2012, ...)
+uv run python scripts/verify_datasets.py \
+  --cub        "$DATA_ROOT/cub200" \
+  --voc        "$DATA_ROOT/voc2012" \
+  --imagenet_s "$DATA_ROOT/imagenet_s50" \
+  --nih        "$DATA_ROOT/nih_chestxray"
 
 echo "[3/4] Running Baseline Evaluation Suite (Phase 3)"
 mkdir -p "$CHECKPOINT_DIR"
+# --ablations adds the A1/A2 raw-attention variants and A3 zero/blur fidelity.
+# A4 (MAE vs supervised) runs only if fine-tuned MAE weights are present.
+MODELS=(vit_b16 deit_b16 swin_b beit_b16 dino_vitb8 dinov2_vitb14)
+if ls "$WEIGHTS_DIR"/mae_b16_* >/dev/null 2>&1; then
+  MODELS+=(mae_b16)
+else
+  echo "  Note: no mae_b16 weights in $WEIGHTS_DIR — ablation A4 will be skipped."
+fi
 # The Phase3Runner caches results incrementally per (dataset, model, explainer).
 # It can safely be interrupted and resumed.
-uv run python -m metrics.runner \
+uv run python run_phase3.py \
+  --data-root "$DATA_ROOT" \
+  --models "${MODELS[@]}" \
+  --ablations \
   --checkpoint-dir "$CHECKPOINT_DIR" \
   --seed $SEED \
-  --norm-mode percentile \
-  --patch-size 16
+  --weights-dir "$WEIGHTS_DIR" \
+  --norm-mode percentile
 
 echo "[4/4] Generating Analytical Artifacts (Phase 4)"
 mkdir -p "$OUTPUT_DIR"
 
-# Concatenate all pickle outputs into a single CSV for Phase 4 ingestion if a script exists,
-# or assume the Phase 4 analytics scripts operate directly via aggregated CSV structure.
-echo "Running Analytical Modules..."
-uv run python scripts/phase4_correlation_analysis.py --results_csv "$CHECKPOINT_DIR/aggregated_results.csv" --output_dir "$OUTPUT_DIR"
-uv run python scripts/phase4_interaction_analysis.py --results_csv "$CHECKPOINT_DIR/aggregated_results.csv" --output_dir "$OUTPUT_DIR"
-uv run python scripts/phase4_ablations.py --output_dir "$OUTPUT_DIR"
+# run_phase3.py writes aggregated_results.csv (one row per sample) and
+# combination_summary.csv into the checkpoint dir at the end of a run.
+# Re-create them any time with: uv run python -m metrics.aggregate --checkpoint-dir DIR
+RESULTS_CSV="$CHECKPOINT_DIR/aggregated_results.csv"
+if [ -f "$RESULTS_CSV" ]; then
+  echo "Running Analytical Modules..."
+  uv run python scripts/phase4_correlation_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
+  uv run python scripts/phase4_interaction_analysis.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
+  uv run python scripts/phase4_ablations.py --results_csv "$RESULTS_CSV" --output_dir "$OUTPUT_DIR"
+else
+  echo "WARNING: $RESULTS_CSV not found — Phase 4 analytics SKIPPED."
+  echo "         Did Phase 3 finish? Re-run: uv run python -m metrics.aggregate --checkpoint-dir $CHECKPOINT_DIR"
+fi
 
 echo "================================================="
 echo " Pipeline Complete."

@@ -43,7 +43,7 @@ Legend:
 | 2.3 | Robustness metrics R1–R3 | ✅ | `metrics/robustness.py`, 16 tests passing |
 | 2.4 | Complexity metrics C1–C3 | ✅ | `metrics/complexity.py`, 45+20 tests passing |
 | 2.5 | Axiomatic analysis (A1–A4) | ✅ | `metrics/axiom_verifier.py`, 20+7 tests, Theorems T1–T6 |
-| 2.5 | Axiom satisfaction table (15×4) | ✅ | `BENCHMARK.md §2.5.2` |
+| 2.5 | Axiom satisfaction table (13×4) | ✅ | `BENCHMARK.md §2.5.2`; reduced to the 13 implemented metrics, theorems T1–T6 revised after review (2026-11-19) |
 | 2.5 | ≥3 formal theorems / counterexamples | ✅ | 6 theorems (T1–T6) documented |
 | 2.x | `MetricSuite` unified class | ✅ | Unified class created at `metrics/suite.py` per instructions |
 
@@ -67,6 +67,7 @@ Legend:
 | 3.2 | Normalisation pipeline | ✅ | `metrics/normalize.py`, 24 tests |
 | 3.3 | `BenchmarkRunner` / `Phase3Runner` | ✅ | `metrics/runner.py`, 36 tests |
 | 3.3 | Checkpointing (`.pkl` per combo) | ✅ | Atomic write, resume support |
+| 3.3 | Per-sample metrics + aggregation | ✅ | `metrics/sample_metrics.py`, `metrics/aggregate.py` → `aggregated_results.csv`, `combination_summary.csv` (2026-11-19) |
 | 3.3 | CLI entry point | ✅ | `python -m metrics.runner` |
 | 3.4 | Sanity checks S1–S3 | ✅ | `metrics/sanity.py`, 16 tests |
 | 3.4 | Run sanity checks on 100-sample subset | 🔶 | Requires GPU + dataset |
@@ -84,16 +85,16 @@ Legend:
 |---|------|--------|-------|
 | 4.1 | Inter-metric correlation script | ✅ | `scripts/phase4_correlation_analysis.py` |
 | 4.1 | Compute Spearman correlation matrix | 🔶 | Requires Phase 3 results CSV |
-| 4.1 | Factor analysis (PCA/varimax) | 🔶 | Requires Phase 3 results CSV |
+| 4.1 | Factor analysis (PCA/varimax) | ✅ code / 🔶 run | `run_factor_analysis()`: PCA on Spearman correlations, Kaiser criterion, varimax; `--fa_level sample\|combination` (2026-11-19) |
 | 4.1 | Write interpretation paragraph | 🔶 | Post-analysis writing |
 | 4.2 | Task-metric interaction script | ✅ | `scripts/phase4_interaction_analysis.py` |
 | 4.2 | Kendall τ concordance | 🔶 | Requires Phase 3 results CSV |
 | 4.2 | Practitioner decision tree | 🔶 | Requires concordance results |
-| 4.3 | Ablation studies script | ✅ | `scripts/phase4_ablations.py` |
-| 4.3 | A1: Token resolution ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A2: Layer depth ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A3: Masking strategy ablation | 🔶 | Requires GPU re-runs |
-| 4.3 | A4: Pre-training objective ablation | 🔶 | Requires GPU re-runs |
+| 4.3 | Ablation studies script | ✅ | Paired comparisons: means, stds, Cohen's d, Wilcoxon, Bonferroni (2026-11-19) |
+| 4.3 | A1: Token resolution ablation | 🔶 | `raw_attention` vs `raw_attention_patch`; produced by `run_phase3.py --ablations` |
+| 4.3 | A2: Layer depth ablation | 🔶 | last layer vs last 3 / all layers / rollout; `--ablations` |
+| 4.3 | A3: Masking strategy ablation | 🔶 | fidelity with mean vs zero vs blur + masking sensitivity; `--ablations` |
+| 4.3 | A4: Pre-training objective ablation | 🔶 | `vit_b16` vs `mae_b16` (added to model zoo); needs MAE fine-tuning on GPU |
 | 4.3 | Cohen's d for all ablations | 🔶 | Post-ablation computation |
 | 4.x | BENCHMARK.md Phase 4 placeholders filled | 🔶 | Requires all above results |
 | 4.x | README.md Phase 4 placeholders filled | 🔶 | Requires all above results |
@@ -143,14 +144,14 @@ Legend:
 |---|------|--------|-------|
 | 5.4.1 | GitHub repository (anonymised) | ✅ | `scripts/anonymised_submission_plan.md` drafted |
 | 5.4.2 | `requirements.txt` | ✅ | Exists with pinned versions |
-| 5.4.3 | `Dockerfile` | ✅ | Created base `Dockerfile` |
-| 5.4.4 | `run_benchmark.sh` | ✅ | `run_benchmark.sh` E2E execution script created |
+| 5.4.3 | `Dockerfile` | ✅ | Python 3.13 + uv base, installs from `uv.lock` (2026-11-19); not yet build-tested |
+| 5.4.4 | `run_benchmark.sh` | ⚠️ | Step 3 now calls `run_phase3.py` (previously the no-op `metrics.runner` CLI). Step 4 Phase 4 scripts still analyse dummy data — see Phase 4 |
 | 5.4.5 | Fixed random seeds, verified identical | ⚠️ | Seeds fixed in runner code; dual-run verification not done (🔶 computational) |
 | 5.4.6 | README: how to install | ✅ | `README.md §Quickstart` |
 | 5.4.7 | README: how to add a new explainer | ✅ | Added to `README.md` |
 | 5.4.8 | README: how to add a new metric | ✅ | Added to `README.md` |
 | 5.4.9 | README: how to reproduce each figure | ✅ | Added to `README.md` |
-| 5.4.10 | pip-installable package (`vit-bench`) | ✅ | `pyproject.toml` configuration completed |
+| 5.4.10 | pip-installable package (`vit-bench`) | ✅ | Build system, dependencies and packages declared in `pyproject.toml`; `vit-bench` → `run_phase3:main` (2026-11-19) |
 
 ### Task 5.5 — Pre-Submission Checklist
 

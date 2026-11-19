@@ -1,11 +1,16 @@
 """
 Phase 4, Task 4.1: Inter-Metric Correlation Analysis
 Computes Spearman rank correlation between every pair of metrics across all method x model x dataset combinations.
-Visualises an inter-metric correlation heatmap. Also includes factor analysis scaffolding.
+Visualises an inter-metric correlation heatmap, and runs a factor analysis
+(PCA on the Spearman correlation matrix + varimax rotation) of the metric space.
 """
 
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from metrics.aggregate import main_results, metric_columns, primary_metric_columns  # noqa: E402
 import scipy.stats as ss
 import pandas as pd
 import numpy as np
@@ -18,8 +23,8 @@ def compute_metric_correlations(results_df: pd.DataFrame) -> pd.DataFrame:
                 rows = (explainer, model, dataset, sample) combinations.
     Returns a correlation matrix.
     """
-    metric_cols = [c for c in results_df.columns
-                   if c not in ["explainer", "model", "dataset", "sample_id"]]
+    # Excludes ids and bookkeeping (label, pred, correct)
+    metric_cols = metric_columns(results_df)
     corr_matrix = pd.DataFrame(index=metric_cols, columns=metric_cols, dtype=float)
     for m1 in metric_cols:
         for m2 in metric_cols:
@@ -43,58 +48,135 @@ def plot_correlation_heatmap(corr_matrix: pd.DataFrame, output_path: str):
     plt.savefig(output_path)
     print(f"Heatmap saved to {output_path}")
 
-def run_factor_analysis(results_df: pd.DataFrame, output_path: str):
+def varimax(loadings: np.ndarray, normalize: bool = True,
+            max_iter: int = 1000, tol: float = 1e-10) -> np.ndarray:
     """
-    Stub for running factor analysis (PCA) to find the latent structure of explanation quality.
-    Generates dummy factor analysis output for scaffolding.
+    Varimax rotation (Kaiser, 1958) of a (variables x factors) loading matrix.
+
+    Pairwise algorithm: each pair of factors is rotated by the closed-form
+    angle that maximises the varimax criterion, sweeping until no angle
+    exceeds ``tol``. With ``normalize`` (Kaiser normalisation, as in R's
+    ``varimax``) rows are scaled to unit communality during rotation.
     """
-    print(f"Generating dummy Factor Analysis variance breakdown to {output_path}.")
-    
-    latent_data = {
-        "Factor": ["Factor 1 (Fidelity/Robustness)", "Factor 2 (Localization)", "Factor 3 (Complexity)"],
-        "Eigenvalue": [3.1, 1.8, 1.1],
-        "Variance_Explained_Pct": [45.2, 26.5, 16.3],
-        "Cumulative_Variance_Pct": [45.2, 71.7, 88.0]
-    }
-    pd.DataFrame(latent_data).to_csv(output_path, index=False)
-    print(f"Factor analysis summary saved to {output_path}")
+    L = np.array(loadings, dtype=float)
+    p, k = L.shape
+    if k < 2:
+        return L
+    h = np.sqrt((L ** 2).sum(axis=1, keepdims=True)) if normalize else np.ones((p, 1))
+    h[h == 0] = 1.0
+    L = L / h
+    for _ in range(max_iter):
+        max_angle = 0.0
+        for i in range(k - 1):
+            for j in range(i + 1, k):
+                x, y = L[:, i], L[:, j]
+                u, v = x ** 2 - y ** 2, 2 * x * y
+                A, B = u.sum(), v.sum()
+                C, D = (u ** 2 - v ** 2).sum(), 2 * (u * v).sum()
+                phi = 0.25 * np.arctan2(D - 2 * A * B / p, C - (A ** 2 - B ** 2) / p)
+                if abs(phi) > tol:
+                    c, s_ = np.cos(phi), np.sin(phi)
+                    L[:, i], L[:, j] = x * c + y * s_, -x * s_ + y * c
+                max_angle = max(max_angle, abs(phi))
+        if max_angle < tol:
+            break
+    return L * h
+
+
+def run_factor_analysis(results_df: pd.DataFrame, output_path: str,
+                        level: str = "sample", min_coverage: float = 0.9) -> dict:
+    """
+    PCA on the Spearman correlation matrix of the primary metrics, with
+    varimax rotation of the retained factors (Kaiser criterion: eigenvalue > 1,
+    at least 2).
+
+    level="sample"      : one row per sample. Metrics present for fewer than
+                          ``min_coverage`` of samples (robustness runs on a
+                          subset) are dropped, then incomplete rows.
+    level="combination" : one row per (dataset, model, explainer) mean, which
+                          includes the robustness metrics.
+
+    Writes ``output_path`` (variance per component) and
+    ``factor_loadings_varimax.csv`` next to it. Returns a summary dict.
+    """
+    cols = primary_metric_columns(results_df)
+    if level == "combination":
+        data = results_df.groupby(["dataset", "model", "explainer"])[cols].mean()
+    elif level == "sample":
+        data = results_df[cols]
+    else:
+        raise ValueError(f"level must be 'sample' or 'combination', got {level!r}")
+
+    coverage = data.notna().mean()
+    dropped = sorted(coverage[coverage < min_coverage].index)
+    data = data.drop(columns=dropped).dropna()
+    constant = sorted(c for c in data.columns if data[c].nunique() <= 1)
+    data = data.drop(columns=constant)
+    if data.shape[1] < 2 or len(data) < data.shape[1] + 1:
+        raise ValueError(
+            f"Not enough data for factor analysis: {len(data)} rows x {data.shape[1]} "
+            f"metrics (dropped sparse {dropped}, constant {constant})."
+        )
+
+    corr = data.rank().corr().to_numpy()                 # Spearman
+    eigval, eigvec = np.linalg.eigh(corr)
+    order = np.argsort(eigval)[::-1]
+    eigval, eigvec = np.clip(eigval[order], 0, None), eigvec[:, order]
+    var_pct = 100 * eigval / eigval.sum()
+
+    n_keep = max(2, int((eigval > 1.0).sum()))
+    loadings = varimax(eigvec[:, :n_keep] * np.sqrt(eigval[:n_keep]))
+    # Order rotated factors by explained variance; make the dominant loading positive
+    ss = (loadings ** 2).sum(axis=0)
+    idx = np.argsort(ss)[::-1]
+    loadings, ss = loadings[:, idx], ss[idx]
+    loadings *= np.sign(loadings[np.abs(loadings).argmax(axis=0), range(n_keep)])
+
+    pd.DataFrame({
+        "Component": [f"PC{i + 1}" for i in range(len(eigval))],
+        "Eigenvalue": eigval,
+        "Variance_Explained_Pct": var_pct,
+        "Cumulative_Variance_Pct": np.cumsum(var_pct),
+        "Retained": [i < n_keep for i in range(len(eigval))],
+    }).to_csv(output_path, index=False)
+
+    factors = [f"F{i + 1}" for i in range(n_keep)]
+    load_df = pd.DataFrame(loadings, index=data.columns, columns=factors)
+    load_df["communality"] = (loadings ** 2).sum(axis=1)
+    load_df.loc["rotated_variance_pct"] = list(100 * ss / len(data.columns)) + [np.nan]
+    loadings_path = os.path.join(os.path.dirname(output_path), "factor_loadings_varimax.csv")
+    load_df.to_csv(loadings_path)
+
+    top3 = float(np.cumsum(var_pct)[min(2, len(var_pct) - 1)])
+    print(f"Factor analysis ({level} level, {len(data)} rows, {data.shape[1]} metrics): "
+          f"{n_keep} factors retained; top-3 components explain {top3:.1f}% "
+          f"({'>' if top3 > 80 else '<='} 80% guide threshold).")
+    if dropped:
+        print(f"  Dropped sparse metrics (<{min_coverage:.0%} coverage): {dropped}")
+    if constant:
+        print(f"  Dropped constant metrics: {constant}")
+    print(f"  Saved {output_path} and {loadings_path}")
+    return {"n_factors": n_keep, "top3_pct": top3, "metrics": list(data.columns),
+            "dropped": dropped + constant, "loadings": load_df}
 
 def main():
     parser = argparse.ArgumentParser(description="Run Task 4.1: Inter-Metric Correlation Analysis")
     parser.add_argument("--results_csv", type=str, required=True, help="Path to aggregated results CSV from Phase 3.")
     parser.add_argument("--output_dir", type=str, default="../results/phase4", help="Directory to save phase 4 outputs.")
+    parser.add_argument("--fa_level", choices=["sample", "combination"], default="sample",
+                        help="Factor analysis rows: per sample (default) or per combination mean "
+                             "(includes the subset-only robustness metrics).")
     args = parser.parse_args()
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if not os.path.isfile(args.results_csv):
+        raise SystemExit(
+            f"ERROR: results CSV not found: {args.results_csv}\n"
+            "Phase 4 needs real Phase 3 results; no dummy data is generated."
+        )
     print(f"Loading results from {args.results_csv}...")
-    # df = pd.read_csv(args.results_csv)
-    # Placeholder for actual data loading logic
-    
-    # Generate dummy data for illustration
-    print("WARNING: Using dummy data for scaffolding.")
-    dummy_cols = ["F1_Sufficiency", "F2_Comprehensiveness", "L1_mIoU", "L2_PG", "R1_MaxSens", "C1_Gini"]
-    
-    # Generate somewhat correlated dummy data
-    N = 300
-    base_signal = np.random.randn(N)
-    
-    df = pd.DataFrame()
-    df["F1_Sufficiency"] = base_signal + np.random.randn(N) * 0.5
-    df["F2_Comprehensiveness"] = base_signal + np.random.randn(N) * 0.6  # Correlated with F1
-    df["L1_mIoU"] = np.random.randn(N) * 1.0  # Orthogonal
-    df["L2_PG"] = df["L1_mIoU"] + np.random.randn(N) * 0.4  # Correlated with L1
-    df["R1_MaxSens"] = np.random.randn(N) * 1.5 # Orthogonal
-    df["C1_Gini"] = np.random.randn(N) * 0.8 # Orthogonal
-
-    # Normalize roughly to metric ranges 0-1
-    for col in dummy_cols:
-        df[col] = (df[col] - df[col].min()) / (df[col].max() - df[col].min())
-
-    df["explainer"] = np.random.choice(["GradCAM", "Rollout", "Chefer LRP"], N)
-    df["model"] = "ViT-B"
-    df["dataset"] = np.random.choice(["ImageNet-S-50", "CUB-200", "PASCAL VOC", "NIH ChestX-ray14"], N)
-    df["sample_id"] = range(N)
+    df = main_results(pd.read_csv(args.results_csv))   # ablation rows/columns excluded
 
     print("Computing correlations...")
     corr_matrix = compute_metric_correlations(df)
@@ -107,7 +189,7 @@ def main():
     plot_correlation_heatmap(corr_matrix, heatmap_out)
 
     fa_out = os.path.join(args.output_dir, "factor_analysis_results.csv")
-    run_factor_analysis(df, fa_out)
+    run_factor_analysis(df, fa_out, level=args.fa_level)
 
 if __name__ == "__main__":
     main()

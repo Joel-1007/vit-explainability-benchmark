@@ -5,7 +5,12 @@ Computes Kendall tau concordance between rankings across datasets.
 """
 
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from metrics.aggregate import main_results, metric_columns  # noqa: E402
+from metrics.sample_metrics import metric_direction  # noqa: E402
 import pandas as pd
 import numpy as np
 import scipy.stats as ss
@@ -16,16 +21,19 @@ def compute_rankings(results_df: pd.DataFrame) -> pd.DataFrame:
     Returns: DataFrame with columns [dataset, metric, explainer, rank].
     """
     # Group by dataset, explainer to get mean metric scores
-    metric_cols = [c for c in results_df.columns if c not in ["explainer", "model", "dataset", "sample_id"]]
+    metric_cols = [c for c in metric_columns(results_df) if metric_direction(c) is not None]
+    skipped = sorted(set(metric_columns(results_df)) - set(metric_cols))
+    if skipped:
+        print(f"Skipping metrics with unknown direction: {skipped}")
     mean_scores = results_df.groupby(["dataset", "explainer"])[metric_cols].mean().reset_index()
     
     rankings = []
     for dataset in mean_scores["dataset"].unique():
         ds_data = mean_scores[mean_scores["dataset"] == dataset]
         for metric in metric_cols:
-            # Assuming higher is better for all metrics as a placeholder. 
-            # In a real implementation, you'd adjust sorting direction based on the metric.
-            ds_data_sorted = ds_data.sort_values(by=metric, ascending=False).reset_index(drop=True)
+            # Rank 1 = best: descending for higher-is-better, ascending otherwise
+            higher_better = metric_direction(metric) > 0
+            ds_data_sorted = ds_data.sort_values(by=metric, ascending=not higher_better).reset_index(drop=True)
             for idx, row in ds_data_sorted.iterrows():
                 rankings.append({
                     "dataset": dataset,
@@ -75,18 +83,13 @@ def main():
 
     os.makedirs(args.output_dir, exist_ok=True)
 
+    if not os.path.isfile(args.results_csv):
+        raise SystemExit(
+            f"ERROR: results CSV not found: {args.results_csv}\n"
+            "Phase 4 needs real Phase 3 results; no dummy data is generated."
+        )
     print(f"Loading results from {args.results_csv}...")
-    print("WARNING: Using dummy data. Implement actual data loading here.")
-    dummy_cols = ["F1", "F2", "L1", "L2", "explainer", "model", "dataset", "sample_id"]
-    N = 400
-    df = pd.DataFrame(np.random.rand(N, 4), columns=dummy_cols[:4])
-    explainers = ["GradCAM", "Rollout", "Chefer LRP", "Raw Attention"]
-    datasets = ["ImageNet-S-50", "CUB-200", "PASCAL VOC", "NIH ChestX-ray14"]
-    
-    df["explainer"] = np.random.choice(explainers, N)
-    df["model"] = "ViT-B"
-    df["dataset"] = np.random.choice(datasets, N)
-    df["sample_id"] = range(N)
+    df = main_results(pd.read_csv(args.results_csv))   # ablation rows/columns excluded
 
     print("Computing rankings...")
     rankings_df = compute_rankings(df)

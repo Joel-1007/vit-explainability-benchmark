@@ -24,20 +24,30 @@ E3 (GradCAM) and E5, E6 are fully Swin-B compatible.
 """
 
 from .base         import BaseExplainer, UnsupportedArchitectureError
-from .raw_attention import RawAttentionExplainer
+from .raw_attention import (
+    RawAttentionExplainer,
+    RawPatchAttentionExplainer,        # ablation A1
+    RawAttentionLast3Explainer,        # ablation A2
+    RawAttentionAllLayersExplainer,    # ablation A2
+)
 from .rollout      import AttentionRolloutExplainer
 from .gradcam      import GradCAMExplainer
 from .chefer_lrp   import CheferLRPExplainer
 from .rise         import RISEExplainer
 from .lime         import LIMEExplainer
 from .dime         import DIMEExplainer
+from .integrated_gradients import IntegratedGradientsExplainer
 
 __all__ = [
     # ABC + exceptions
     "BaseExplainer",
     "UnsupportedArchitectureError",
     # Explainers E1–E7
+    "IntegratedGradientsExplainer",   # E8 (optional)
     "RawAttentionExplainer",          # E1
+    "RawPatchAttentionExplainer",
+    "RawAttentionLast3Explainer",
+    "RawAttentionAllLayersExplainer",
     "AttentionRolloutExplainer",       # E2
     "GradCAMExplainer",               # E3
     "CheferLRPExplainer",             # E4

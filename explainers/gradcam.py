@@ -39,7 +39,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from .base import BaseExplainer, _get_timm_blocks, _to_patch_grid
+from .base import BaseExplainer, _get_timm_blocks, _num_prefix_tokens
 
 
 class GradCAMExplainer(BaseExplainer):
@@ -119,31 +119,37 @@ class GradCAMExplainer(BaseExplainer):
                 "Ensure the model is not in 'no_grad' mode at call time."
             )
 
-        act  = act.float()
-        grad = grad.float()
+        act  = act[0].float()   # (T, D) for ViT-style, (h, w, D) for Swin
+        grad = grad[0].float()
 
-        # Drop CLS token from ViT-style models (first token)
-        if act.shape[1] > (self.img_size // self.patch_size) ** 2:
-            act  = act[:, 1:, :]    # (1, N, D)
-            grad = grad[:, 1:, :]
-
-        act  = act[0]   # (N, D)
-        grad = grad[0]  # (N, D)
+        if act.dim() == 3:
+            # Swin (timm, NHWC): last stage is an (h, w, D) feature map.
+            h, w = act.shape[0], act.shape[1]
+            act  = act.reshape(h * w, -1)
+            grad = grad.reshape(h * w, -1)
+        else:
+            # ViT-style: strip prefix tokens (CLS; DeiT also has a
+            # distillation token) so only the h x w patch tokens remain.
+            n_prefix = _num_prefix_tokens(self.model, act.shape[0])
+            act, grad = act[n_prefix:], grad[n_prefix:]
+            h = w = int(round(act.shape[0] ** 0.5))
+            if h * w != act.shape[0]:
+                raise RuntimeError(
+                    f"GradCAM: {act.shape[0]} patch tokens do not form a square grid."
+                )
 
         # GradCAM: global-average-pool gradients over patches → importance per feature
-        alpha = grad.mean(dim=0)             # (D,)
-        cam   = torch.relu((act * alpha).sum(dim=-1))  # (N,)
+        alpha = grad.mean(dim=0)                       # (D,)
+        cam   = torch.relu((act * alpha).sum(dim=-1))  # (h*w,)
+        cam   = cam.view(h, w)
 
         P = self.img_size // self.patch_size
-
-        # Handle Swin-B: spatial tokens may be flattened from H/32 × W/32 feature map
-        if cam.numel() != P * P:
-            # Interpolate to target grid
+        if (h, w) != (P, P):
+            # Resample the native token grid (e.g. Swin's 7x7) to the
+            # benchmark's P x P attribution grid, preserving 2-D layout.
             cam = F.interpolate(
-                cam.view(1, 1, -1),
-                size=P * P,
-                mode="linear",
-                align_corners=False,
-            ).squeeze()
+                cam[None, None], size=(P, P), mode="bilinear", align_corners=False,
+            )[0, 0]
 
-        return _to_patch_grid(cam, P)
+        return cam
+

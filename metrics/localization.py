@@ -5,7 +5,7 @@ Implements the four localization metrics L1–L4 defined in Task 2.2 §1.
 
 L1  multi_threshold_iou   — Mean IoU at τ ∈ {0.25, 0.50, 0.75}
 L2  pointing_game         — Peak-attribution point inside GT mask
-L3  egt                   — Energy-Ground-Truth (softmax-normalised)
+L3  egt                   — Energy-Ground-Truth (positive-mass fraction)
 L4  calibration_gap       — EGT(correct) − EGT(incorrect)
 
 Design principles
@@ -81,32 +81,30 @@ def _to_2d(t: torch.Tensor) -> torch.Tensor:
     return t
 
 
-def _align(att: torch.Tensor, ref: torch.Tensor) -> torch.Tensor:
+def _align(att: torch.Tensor, ref: torch.Tensor, mode: str = "bilinear") -> torch.Tensor:
     """
-    Bilinearly resize `att` (H_a × W_a) to match `ref` (H_r × W_r).
+    Resize `att` (H_a × W_a) to match `ref` (H_r × W_r).
 
-    If they already match, returns `att` unchanged (no copy).
+    ``mode="bilinear"`` (L1, L2) or ``"nearest"`` (L3: each patch's
+    attribution covers exactly its own pixels, so no mass leaks across
+    patch boundaries). Returns `att` unchanged if shapes already match.
     """
     if att.shape == ref.shape:
         return att
     return F.interpolate(
-        att.unsqueeze(0).unsqueeze(0),   # (1, 1, H_a, W_a)
+        att.unsqueeze(0).unsqueeze(0).float(),   # (1, 1, H_a, W_a)
         size=ref.shape,
-        mode="bilinear",
-        align_corners=False,
-    ).squeeze(0).squeeze(0)              # (H_r, W_r)
+        mode=mode,
+        align_corners=False if mode == "bilinear" else None,
+    ).squeeze(0).squeeze(0)                      # (H_r, W_r)
 
 
-def _normalise_softmax(att: torch.Tensor) -> torch.Tensor:
-    """
-    Flatten → softmax → reshape.
-
-    Produces a probability distribution over all spatial positions.
-    This is the normalisation scheme required by L3 (EGT) as specified
-    in Task 2.2 §1.3.
-    """
-    flat = att.flatten()
-    return flat.softmax(dim=0).reshape(att.shape)
+def _valid_region(gt_mask: torch.Tensor, shape) -> torch.Tensor:
+    """Boolean mask of pixels that are not marked ignore (255)."""
+    g = _to_2d(gt_mask)
+    if tuple(g.shape) != tuple(shape):
+        return torch.ones(shape, dtype=torch.bool)
+    return g != 255
 
 
 def _binary_gt(gt: torch.Tensor) -> torch.Tensor:
@@ -296,28 +294,42 @@ class LocalizationMetrics:
         gt_mask: torch.Tensor,
     ) -> float:
         """
-        L3 — Energy-Ground-Truth (EGT).
+        L3 — Energy-Ground-Truth (EGT), energy-based pointing game
+        (Wang et al., 2020, Score-CAM).
 
-        Formal definition (Task 2.2 §1.3)
-        -----------------------------------
-        Let ẽ_p = softmax(e)_p  be the spatially normalised attribution:
+        Formal definition
+        -----------------
+        With e⁺_p = max(e_p, 0) the positive part of the attribution
+        (upsampled to the mask resolution):
 
-            ẽ_p = exp(e_p) / Σ_q exp(e_q)
+            EGT  =  Σ_{p ∈ M_GT} e⁺_p  /  Σ_p e⁺_p
 
-        EGT  =  Σ_{p ∈ M_GT} ẽ_p
+        i.e. the fraction of the map's positive attribution mass that lies
+        inside the GT region.
 
-        Interpretation: the fraction of total attribution mass (under the
-        softmax distribution) that falls inside the GT region.  EGT ∈ [0, 1].
+        Properties
+        ----------
+        • EGT ∈ [0, 1]; EGT = 1 iff no positive mass lies outside the GT.
+        • Invariant to positive rescaling e ↦ c·e (c > 0), so maps from
+          explainers with different raw scales are comparable, and min-max
+          normalised maps give the same value as their raw maps up to the
+          shift of the minimum.
+        • Negative attribution is ignored (it is evidence *against* the
+          class, not energy on the object).
+        • Degenerate case: if the map has no positive mass, EGT equals the
+          GT area fraction |M_GT| / |M| — the value of an uninformative
+          (uniform) map.
 
-        Notes
-        -----
-        Softmax normalisation is required rather than sum-normalisation to
-        ensure that negative attribution values (e.g. from GradCAM) are
-        handled correctly and that the distribution always sums to 1.
+        (An earlier version used softmax(e) instead of e⁺. Softmax is
+        strictly positive, so EGT could never reach 1, and on [0, 1] maps it
+        was nearly flat — compressing every map toward the GT area fraction —
+        while on raw maps it depended on each method's scale.)
+
+        Pixels marked ignore (255) in ``gt_mask`` are excluded from both sums.
 
         Parameters
         ----------
-        att_map : (H_a, W_a) — raw attribution values.
+        att_map : (H_a, W_a) — attribution values (any scale, any sign).
         gt_mask : (H_r, W_r)
 
         Returns
@@ -326,10 +338,15 @@ class LocalizationMetrics:
         """
         att = _to_2d(att_map)
         gt  = _binary_gt(gt_mask)
-        att = _align(att, gt)
+        att = _align(att, gt, mode="nearest")
 
-        norm = _normalise_softmax(att)   # (H, W), sums to 1.0
-        return float(norm[gt].sum().item())
+        valid = _valid_region(gt_mask, gt.shape)
+        pos   = att.clamp(min=0) * valid
+        total = pos.sum()
+        if total <= 0:
+            n_valid = valid.sum()
+            return float((gt & valid).sum() / n_valid) if n_valid > 0 else 0.0
+        return float((pos[gt].sum() / total).item())
 
     # ------------------------------------------------------------------
     # L4 — Calibration Gap

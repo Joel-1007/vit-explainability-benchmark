@@ -6,8 +6,9 @@ Provides a simple PGD implementation used by the adversarial robustness metric.
 
 from __future__ import annotations
 
+from typing import Optional, Sequence
+
 import torch
-import torch.nn.functional as F
 
 
 def pgd_attack(
@@ -18,47 +19,64 @@ def pgd_attack(
     alpha: float = 0.01,
     steps: int = 10,
     random_start: bool = True,
+    mean: Optional[Sequence[float]] = None,
+    std: Optional[Sequence[float]] = None,
 ) -> torch.Tensor:
-    """Perform a PGD attack on a single image.
+    """Untargeted L∞ PGD on a single image: maximise the loss of ``target``.
 
     Parameters
     ----------
     model: torch.nn.Module
         Model to attack (in eval mode).
     x: torch.Tensor
-        Input image tensor of shape (C, H, W) in [0, 1].
+        Input image (C, H, W). In [0, 1] pixel space when ``mean``/``std``
+        are None; otherwise already normalised as ``(pixel - mean) / std``,
+        which is what the benchmark's data loaders produce.
     target: int
-        Target class index for which to maximize loss.
-    epsilon: float, default 0.03
-        Maximum L-infinity perturbation.
-    alpha: float, default 0.01
-        Step size.
-    steps: int, default 10
+        Class whose cross-entropy loss is maximised (usually the true label),
+        i.e. the attack pushes the prediction *away* from it.
+    epsilon, alpha: float
+        L∞ radius and step size, always in [0, 1] pixel units (0.03 ≈ 8/255).
+    steps: int
         Number of gradient steps.
-    random_start: bool, default True
-        If True, start from a random point within the epsilon ball.
+    random_start: bool
+        Start from a random point inside the epsilon ball.
+    mean, std: per-channel normalisation of ``x``. When given, the attack
+        runs in pixel space (so clipping to [0, 1] and epsilon refer to real
+        pixel values) and the result is returned normalised again.
 
     Returns
     -------
     torch.Tensor
-        Adversarially perturbed image of same shape as ``x``.
+        Adversarial image, same shape and space as ``x``.
     """
     model.eval()
-    x_adv = x.clone().detach()
+    if (mean is None) != (std is None):
+        raise ValueError("Pass both mean and std, or neither.")
+
+    if mean is not None:
+        m = torch.as_tensor(mean, dtype=x.dtype, device=x.device).view(-1, 1, 1)
+        s = torch.as_tensor(std,  dtype=x.dtype, device=x.device).view(-1, 1, 1)
+        to_model = lambda p: (p - m) / s          # noqa: E731
+        x_pix = (x * s + m).clamp(0.0, 1.0)
+    else:
+        to_model = lambda p: p                    # noqa: E731
+        x_pix = x
+
+    x_pix = x_pix.detach()
+    x_adv = x_pix.clone()
     if random_start:
         x_adv = x_adv + (torch.rand_like(x_adv) * 2 - 1) * epsilon
         x_adv = torch.clamp(x_adv, 0.0, 1.0)
-    x_adv.requires_grad = True
 
     loss_fn = torch.nn.CrossEntropyLoss()
+    target_t = torch.tensor([target], device=x.device)
     for _ in range(steps):
-        logits = model(x_adv.unsqueeze(0))
-        loss = loss_fn(logits, torch.tensor([target], device=logits.device))
-        loss.backward()
-        grad = x_adv.grad.sign()
-        x_adv = x_adv + alpha * grad
-        x_adv = torch.max(torch.min(x_adv, x + epsilon), x - epsilon)
+        x_adv = x_adv.detach().requires_grad_(True)
+        with torch.enable_grad():
+            loss = loss_fn(model(to_model(x_adv).unsqueeze(0)), target_t)
+            grad, = torch.autograd.grad(loss, x_adv)
+        x_adv = x_adv + alpha * grad.sign()
+        x_adv = torch.max(torch.min(x_adv, x_pix + epsilon), x_pix - epsilon)
         x_adv = torch.clamp(x_adv, 0.0, 1.0)
-        x_adv = x_adv.detach()
-        x_adv.requires_grad = True
-    return x_adv.detach()
+    return to_model(x_adv.detach())

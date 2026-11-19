@@ -513,3 +513,48 @@ def _run_all_tests() -> None:
 
 if __name__ == "__main__":
     _run_all_tests()
+
+
+# ---------------------------------------------------------------------------
+# GradCAM token-layout regression tests (DeiT distillation token, Swin NHWC)
+# ---------------------------------------------------------------------------
+
+def _manual_gradcam(model, block, x, target, n_prefix, P):
+    import torch.nn.functional as F
+    store = {}
+    h1 = block.register_forward_hook(lambda m, i, o: store.__setitem__("a", o))
+    h2 = block.register_full_backward_hook(lambda m, gi, go: store.__setitem__("g", go[0]))
+    with torch.enable_grad():
+        model.zero_grad()
+        model(x.unsqueeze(0))[0, target].backward()
+    h1.remove(); h2.remove()
+    a, g = store["a"][0].detach(), store["g"][0].detach()
+    if a.dim() == 3:                       # Swin (h, w, D)
+        hh, ww = a.shape[:2]
+        a, g = a.reshape(hh * ww, -1), g.reshape(hh * ww, -1)
+    else:
+        a, g = a[n_prefix:], g[n_prefix:]
+        hh = ww = int(a.shape[0] ** 0.5)
+    cam = torch.relu((a * g.mean(0)).sum(-1)).view(hh, ww)
+    if hh != P:
+        cam = F.interpolate(cam[None, None], size=(P, P), mode="bilinear",
+                            align_corners=False)[0, 0]
+    return cam
+
+
+@pytest.mark.parametrize("arch,n_prefix", [
+    ("deit_tiny_distilled_patch16_224", 2),
+    ("swin_tiny_patch4_window7_224", 0),
+])
+def test_gradcam_respects_token_layout(arch, n_prefix):
+    import timm
+    from explainers import GradCAMExplainer
+    from explainers.base import _get_timm_blocks
+
+    torch.manual_seed(0)
+    model = timm.create_model(arch, pretrained=False, num_classes=5).eval()
+    x = torch.randn(3, 224, 224)
+    out = GradCAMExplainer(model, patch_size=16).explain(x, 3)
+    ref = _manual_gradcam(model, _get_timm_blocks(model)[-1], x, 3, n_prefix, 14)
+    assert out.shape == (14, 14)
+    assert torch.allclose(out, ref, atol=1e-5)

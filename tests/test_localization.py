@@ -355,5 +355,50 @@ def _run_all_tests() -> None:
         sys.exit(1)
 
 
+@_register
+def T13_egt_reaches_one_on_unit_scale_maps():
+    """A [0,1] map with all positive mass inside GT has EGT = 1 (softmax gave ~0.72)."""
+    gt = torch.zeros(224, 224, dtype=torch.long); gt[:112] = 1
+    att = torch.zeros(14, 14); att[:7] = 1.0
+    assert lm.egt(att, gt) == 1.0
+    assert lm.egt(1.0 - att, gt) == 0.0
+    print("T13 ✓  egt_reaches_one_on_unit_scale_maps")
+
+
+@_register
+def T14_egt_scale_invariant():
+    """EGT(c·e) = EGT(e) for c > 0, so raw explainer scales do not matter."""
+    g = torch.Generator().manual_seed(0)
+    gt = torch.zeros(56, 56, dtype=torch.long); gt[10:40, 5:30] = 1
+    att = torch.rand(14, 14, generator=g)
+    base = lm.egt(att, gt)
+    for c in (1e-3, 0.5, 7.0, 1e4):
+        assert abs(lm.egt(att * c, gt) - base) < 1e-6
+    print("T14 ✓  egt_scale_invariant")
+
+
+@_register
+def T15_egt_degenerate_and_ignore():
+    """No positive mass → GT area fraction; ignore (255) pixels are excluded."""
+    gt = torch.zeros(14, 14, dtype=torch.long); gt[:, :7] = 1
+    assert abs(lm.egt(torch.zeros(14, 14), gt) - 0.5) < 1e-6
+    assert abs(lm.egt(-torch.ones(14, 14), gt) - 0.5) < 1e-6
+    gt_ign = gt.clone(); gt_ign[:, 7:] = 255          # everything outside GT is ignore
+    assert lm.egt(torch.ones(14, 14), gt_ign) == 1.0
+    print("T15 ✓  egt_degenerate_and_ignore")
+
+
+# ---------------------------------------------------------------------------
+# pytest collection: the registered T-functions are not named test_*, so
+# expose each one as a parametrised pytest case.
+# ---------------------------------------------------------------------------
+import pytest  # noqa: E402
+
+
+@pytest.mark.parametrize("fn", [fn for _, fn in _TESTS], ids=[n for n, _ in _TESTS])
+def test_registered(fn):
+    fn()
+
+
 if __name__ == "__main__":
     _run_all_tests()

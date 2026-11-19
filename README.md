@@ -9,7 +9,7 @@
 
 ## Overview
 
-Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **7 explanation methods**, and **4 datasets**, measuring **13 metrics** spanning Fidelity, Localization, Robustness, and Complexity.
+Existing evaluation frameworks for Vision Transformer (ViT) explanations are often inconsistent, narrowly scoped, and lack standardised methodology. This benchmark provides a rigorous, unified, and mathematically grounded evaluation suite that generates consistent empirical evidence across **6 ViT architectures**, **6 explanation methods** (plus a DIME placeholder, E7, not evaluated, and optional Integrated Gradients, E8), and **4 datasets**, measuring **13 metrics** (F1–F3, L1–L4, R1–R3, C1–C3) spanning Fidelity, Localization, Robustness, and Complexity.
 
 > 📖 **Full technical reference:** [BENCHMARK.md](BENCHMARK.md) — contains all metric definitions, mathematical proofs, experimental protocols, and API specifications.
 
@@ -21,7 +21,7 @@ Existing evaluation frameworks for Vision Transformer (ViT) explanations are oft
 |-----------|---------|------------------|
 | **Fidelity (F1–F3)** | Sufficiency, Comprehensiveness, Log-odds | Does removing highlighted patches destroy model confidence? |
 | **Localization (L1–L4)** | mIoU, Pointing Game, EGT, CalibGap | Does the explanation highlight the object of interest? |
-| **Robustness (R1–R3)** | MaxSens, ModelRand, LabelRand | Is the explanation stable under perturbations? |
+| **Robustness (R1–R3)** | MaxSens, ModelRand, HeadPerm | Is the explanation stable and model-sensitive? |
 | **Complexity (C1–C3)** | Gini, Entropy, Effective Mass Ratio | Is the explanation parsimonious and interpretable? |
 
 Additionally, the **Axiomatic Analysis Tool** (`AxiomVerifier`) maps every metric against the four Shapley axioms (Dummy, Completeness, Symmetry, Linearity), surfacing representational biases — including Theorem T6: the anti-alignment of complexity and symmetry.
@@ -50,6 +50,7 @@ Six ViT variants (~86M parameters each), fine-tuned under an identical standardi
 | E5 | RISE | `RISEExplainer` | ✓ |
 | E6 | LIME | `LIMEExplainer` | ✓ |
 | E7 | DIME | `DIMEExplainer` | — *(placeholder)* |
+| E8 | Integrated Gradients (optional) | `IntegratedGradientsExplainer` | ✓ |
 
 ---
 
@@ -62,13 +63,15 @@ Six ViT variants (~86M parameters each), fine-tuned under an identical standardi
 git clone https://github.com/Joel-1007/vit-explainability-benchmark.git
 cd vit-explainability-benchmark
 
-# Install dependencies via pip
-pip install -r requirements.txt
-
-# Or use uv (recommended for fast, deterministic, reproducible environment management)
+# Recommended: uv (creates a Python 3.13 venv from uv.lock)
 pip install uv --user
 uv sync
+
+# Or with pip, in a Python >= 3.13 environment
+pip install -e .        # installs the packages and the `vit-bench` command
 ```
+
+`vit-bench` is the same as `python run_phase3.py`, e.g. `vit-bench --data-root /path/to/datasets --dry-run`.
 
 ### Run Tests
 
@@ -97,6 +100,21 @@ python run_phase3.py --data-root /path/to/datasets \
 ```
 
 The benchmark automatically checkpoints each `(dataset, model, explainer)` combination as a `.pkl` file, so interrupted runs can be resumed seamlessly.
+
+**Outputs.** Every image gets localization (L1–L3), complexity (C1–C3), fidelity (F1–F3) and correctness; robustness (R1–R3) is computed on the first `--robustness-subset` images per combination (default 100, `-1` = all) because R1 re-runs the explainer `--robustness-samples` times per image. At the end of a run the checkpoint dir contains `aggregated_results.csv` (one row per sample, the Phase 4 input) and `combination_summary.csv` (means, accuracy and L4 CalibGap per combination). Rebuild both at any time with `python -m metrics.aggregate --checkpoint-dir results/phase3`. Restrict families with `--metrics localization complexity`.
+
+**Ablations (Phase 4, A1–A4).** `--ablations` adds the raw-attention variants for A1 (patch- vs CLS-token attention) and A2 (last 3 / all layers; rollout), and computes fidelity with zero and blur masking for A3 (columns suffixed `[zero]`/`[blur]`). A4 compares `vit_b16` with `mae_b16` (MAE pre-training, same architecture): add `--models vit_b16 mae_b16` and fine-tuned MAE weights. `scripts/phase4_ablations.py` reports means, stds, Cohen's d, Wilcoxon and Bonferroni p-values; ablation rows and columns are excluded from the main correlation, factor and ranking analyses. `--metrics ... adversarial` adds PGD robustness (ε = 0.03 in pixel units) on the robustness subset.
+
+**Fine-tuned weights.** Each dataset needs its own fine-tuned model. Pass `--weights-dir DIR` containing `{model}_{dataset}.pth` or the trainer's `{model}_ft_{dataset}_*.pth` files. A missing checkpoint is an error; `--allow-random-head` skips that check for pipeline smoke tests only (results are meaningless).
+
+**Dataset layout** under `--data-root` (masks are loaded alongside images; see [utils/eval_datasets.py](utils/eval_datasets.py) for class orders):
+
+```
+cub200/         images/<class>/*.jpg, segmentations/<class>/*.png, images.txt, train_test_split.txt
+voc2012/        JPEGImages/, SegmentationClass/, ImageSets/Segmentation/val.txt
+imagenet_s50/   validation/<wnid>/*.JPEG + masks (beside images or in validation-segmentation/)
+nih_chestxray/  images/*.png, BBox_List_2017.csv
+```
 
 ### Usage Example: Single Evaluation Loop
 
@@ -199,7 +217,7 @@ vit-explainability-benchmark/
 │   ├── dino_vitb8.py           #   DINO-ViT-B/8
 │   └── dinov2_vitb14.py        #   DINOv2-ViT-B/14
 │
-├── explainers/                 # 7 explanation method implementations
+├── explainers/                 # 6 explanation methods + DIME placeholder (E7)
 │   ├── base.py                 #   BaseExplainer ABC
 │   ├── raw_attention.py        #   E1 — Raw CLS attention
 │   ├── rollout.py              #   E2 — Attention Rollout
@@ -212,7 +230,7 @@ vit-explainability-benchmark/
 ├── metrics/                    # Evaluation suite
 │   ├── fidelity.py             #   F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
 │   ├── localization.py         #   L1–L4 (mIoU, PG, EGT, CalibGap)
-│   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, LabelRand)
+│   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, HeadPerm)
 │   ├── complexity.py           #   C1–C3 (Gini, Entropy, EMR)
 │   ├── axiom_verifier.py       #   Axiomatic analysis (A1–A4) + Theorems T1–T6
 │   ├── normalize.py            #   Attribution normalisation pipeline
@@ -386,7 +404,7 @@ tail -f logs/bench_<JOB_ID>.out
 
 ### 7. A100-Specific Optimizations
 
-The A100 supports **bfloat16** and **TF32** natively for significantly faster training and inference. Add to `main.py`:
+The A100 supports **bfloat16** and **TF32** natively for significantly faster training and inference. Add near the top of `run_phase3.py`'s `main()`:
 
 ```python
 import torch
@@ -406,7 +424,7 @@ torch.backends.cudnn.allow_tf32 = True
 
 ### Docker / Singularity (Alternative)
 
-The repo includes a `Dockerfile` pre-configured for **CUDA 12.1 + PyTorch 2.2**:
+The repo includes a `Dockerfile` (CUDA 12.1 base image, Python 3.13 venv managed by `uv`):
 
 ```bash
 # Docker
@@ -414,7 +432,7 @@ docker build -t vit-bench .
 docker run --gpus all -v /data:/data -e DATA_ROOT=/data vit-bench bash run_benchmark.sh
 
 # Singularity (common in HPC environments)
-singularity build vit_bench.sif docker://pytorch/pytorch:2.2.0-cuda12.1-cudnn8-runtime
+singularity build vit_bench.sif docker-daemon://vit-bench:latest
 ```
 
 ---

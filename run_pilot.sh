@@ -32,6 +32,14 @@ RISE_N_MASKS=100                # Reduced from 4000 (40× faster)
 CHECKPOINT_DIR="results/pilot"
 OUTPUT_DIR="results/pilot/phase4"
 DATA_ROOT=${DATA_ROOT:-"/data"}
+# Fine-tuned checkpoints. If unset, the pilot uses random heads: this tests
+# the pipeline only — the numbers are meaningless.
+WEIGHTS_DIR=${WEIGHTS_DIR:-""}
+if [ -n "$WEIGHTS_DIR" ]; then
+    WEIGHT_ARGS=(--weights-dir "$WEIGHTS_DIR")
+else
+    WEIGHT_ARGS=(--allow-random-head)
+fi
 SKIP_TESTS=${1:-""}
 
 echo ""
@@ -93,12 +101,17 @@ echo ""
 mkdir -p "$CHECKPOINT_DIR" "$OUTPUT_DIR"
 
 # Run Phase 3 with limited batches
-uv run python -m metrics.runner \
+uv run python run_phase3.py \
+    --data-root "$DATA_ROOT" \
+    --datasets cub200 \
+    --models vit_b16 \
+    --batch-size 8 \
     --checkpoint-dir "$CHECKPOINT_DIR" \
     --seed "$SEED" \
     --max-batches "$MAX_BATCHES" \
     --norm-mode minmax \
-    --patch-size 16
+    --ablations \
+    "${WEIGHT_ARGS[@]}"
 
 echo ""
 echo "[Phase 4] Running analytics on pilot results..."
@@ -114,10 +127,11 @@ if [ -f "$RESULTS_CSV" ]; then
         --results_csv "$RESULTS_CSV" \
         --output_dir "$OUTPUT_DIR"
     uv run python scripts/phase4_ablations.py \
+        --results_csv "$RESULTS_CSV" \
         --output_dir "$OUTPUT_DIR"
 else
-    echo "  ⚠️  No aggregated_results.csv yet — Phase 4 analytics skipped."
-    echo "       (Run the full pipeline with run_benchmark.sh to generate it)"
+    echo "  ⚠️  No aggregated_results.csv — Phase 4 analytics skipped."
+    echo "       run_phase3.py writes it at the end of a run; check the log above."
 fi
 
 # --- Summary --------------------------------------------------

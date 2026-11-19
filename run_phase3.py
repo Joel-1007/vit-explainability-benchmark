@@ -58,23 +58,30 @@ from typing import Any, Dict
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader, Subset
-from torchvision import transforms
-from torchvision.datasets import ImageFolder
+from torch.utils.data import DataLoader
 
 import numpy as np
 
 # ── Project imports ──────────────────────────────────────────────────────────
-from model_zoo import load_model, MODEL_REGISTRY
+from model_zoo import load_model, MODEL_REGISTRY, ABLATION_MODEL_REGISTRY
 from explainers import (
     RawAttentionExplainer,
+    RawPatchAttentionExplainer,
+    RawAttentionLast3Explainer,
+    RawAttentionAllLayersExplainer,
     AttentionRolloutExplainer,
     GradCAMExplainer,
     CheferLRPExplainer,
     RISEExplainer,
     LIMEExplainer,
+    IntegratedGradientsExplainer,
 )
 from metrics.runner import Phase3Runner
+from metrics.sample_metrics import ALL_FAMILIES, FAMILIES, SampleMetricComputer
+from metrics.fidelity import MASK_MODES
+from utils.eval_datasets import IMAGENET_MEAN, IMAGENET_STD
+from metrics.aggregate import aggregate
+from utils.eval_datasets import DATASET_CLASSES, NUM_CLASSES, build_eval_loader
 
 log = logging.getLogger("run_phase3")
 
@@ -90,6 +97,20 @@ EXPLAINER_REGISTRY: Dict[str, type] = {
     "rise":          RISEExplainer,              # E5
     "lime":          LIMEExplainer,              # E6
 }
+
+# Phase 4 ablation variants — selectable, never part of the default matrix.
+ABLATION_EXPLAINER_REGISTRY: Dict[str, type] = {
+    "raw_attention_patch": RawPatchAttentionExplainer,      # A1 patch vs CLS
+    "raw_attention_last3": RawAttentionLast3Explainer,      # A2 last 3 layers
+    "raw_attention_all":   RawAttentionAllLayersExplainer,  # A2 all layers
+}
+# Optional main-matrix explainers (not run by default; select with --explainers)
+OPTIONAL_EXPLAINER_REGISTRY: Dict[str, type] = {
+    "integrated_gradients": IntegratedGradientsExplainer,   # E8, axiomatic reference
+}
+ALL_EXPLAINERS = {**EXPLAINER_REGISTRY, **OPTIONAL_EXPLAINER_REGISTRY,
+                  **ABLATION_EXPLAINER_REGISTRY}
+ALL_MODELS = [*MODEL_REGISTRY, *ABLATION_MODEL_REGISTRY]
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -123,203 +144,66 @@ def _setup_logging(log_file: str | None = None) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# Dataset loading helpers
+# Models: one fine-tuned model per (model, dataset)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _get_transform(input_size: int = 224) -> transforms.Compose:
-    """Standard evaluation transform matching BENCHMARK.md §5.3."""
-    return transforms.Compose([
-        transforms.Resize(256),
-        transforms.CenterCrop(input_size),
-        transforms.ToTensor(),
-        transforms.Normalize(
-            mean=[0.485, 0.456, 0.406],
-            std=[0.229, 0.224, 0.225],
-        ),
-    ])
-
-
-def _load_imagefolder_dataset(
-    root: str,
-    split: str = "val",
-    input_size: int = 224,
-    batch_size: int = 32,
-    max_samples: int | None = None,
-) -> DataLoader:
-    """Load an ImageFolder-style dataset with optional sample limit."""
-    dataset = ImageFolder(
-        os.path.join(root, split),
-        transform=_get_transform(input_size),
-    )
-    if max_samples is not None and max_samples < len(dataset):
-        indices = list(range(max_samples))
-        dataset = Subset(dataset, indices)
-
-    return DataLoader(
-        dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=4,
-        pin_memory=True,
-        drop_last=False,
-    )
-
-
-def load_cub200(
-    data_root: str,
-    batch_size: int = 32,
-    max_samples: int | None = None,
-) -> DataLoader:
-    """
-    Load CUB-200-2011 test split as ImageFolder.
-
-    Expected structure:
-        {data_root}/cub200/images/001.Black_footed_Albatross/...
-    """
-    cub_root = os.path.join(data_root, "cub200")
-    return _load_imagefolder_dataset(
-        cub_root, split="images", batch_size=batch_size, max_samples=max_samples,
-    )
-
-
-def load_pascal_voc(
-    data_root: str,
-    batch_size: int = 32,
-    max_samples: int | None = None,
-) -> DataLoader:
-    """
-    Load PASCAL VOC 2012 segmentation val split.
-
-    Expected structure:
-        {data_root}/voc2012/JPEGImages/...
-        {data_root}/voc2012/ImageSets/Segmentation/val.txt
-    """
-    from PIL import Image
-    from torch.utils.data import Dataset
-
-    voc_root = os.path.join(data_root, "voc2012")
-    transform = _get_transform(224)
-
-    class VOCSegDataset(Dataset):
-        """Minimal VOC dataset yielding (image, label) tuples."""
-        def __init__(self, root, split="val", transform=None, max_samples=None):
-            self.root = Path(root)
-            self.transform = transform
-            split_file = self.root / "ImageSets" / "Segmentation" / f"{split}.txt"
-            with open(split_file) as f:
-                self.ids = [line.strip() for line in f if line.strip()]
-            if max_samples is not None:
-                self.ids = self.ids[:max_samples]
-
-        def __len__(self):
-            return len(self.ids)
-
-        def __getitem__(self, idx):
-            img_id = self.ids[idx]
-            img = Image.open(self.root / "JPEGImages" / f"{img_id}.jpg").convert("RGB")
-            if self.transform:
-                img = self.transform(img)
-            return img, 0  # class label not used; localization uses seg masks
-
-    dataset = VOCSegDataset(voc_root, split="val", transform=transform, max_samples=max_samples)
-    return DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, num_workers=4,
-        pin_memory=True, drop_last=False,
-    )
-
-
-def load_imagenet_s50(
-    data_root: str,
-    batch_size: int = 32,
-    max_samples: int | None = None,
-) -> DataLoader:
-    """
-    Load ImageNet-S-50 validation split.
-
-    Expected structure:
-        {data_root}/imagenet_s50/validation/n01440764/...
-    """
-    ins_root = os.path.join(data_root, "imagenet_s50")
-    return _load_imagefolder_dataset(
-        ins_root, split="validation", batch_size=batch_size, max_samples=max_samples,
-    )
-
-
-def load_nih_chestxray(
-    data_root: str,
-    batch_size: int = 32,
-    max_samples: int | None = None,
-) -> DataLoader:
-    """
-    Load NIH ChestX-ray14 test images.
-
-    Expected structure:
-        {data_root}/nih_chestxray/images/00000001_000.png
-        {data_root}/nih_chestxray/test_list.txt
-    """
-    from PIL import Image
-    from torch.utils.data import Dataset
-
-    nih_root = Path(data_root) / "nih_chestxray"
-    transform = _get_transform(224)
-
-    class NIHChestXrayDataset(Dataset):
-        """Minimal NIH CXR dataset yielding (image, label) tuples."""
-        def __init__(self, root, transform=None, max_samples=None):
-            self.root = Path(root)
-            self.transform = transform
-            list_file = self.root / "test_list.txt"
-            with open(list_file) as f:
-                self.image_ids = [line.strip() for line in f if line.strip()]
-            if max_samples is not None:
-                self.image_ids = self.image_ids[:max_samples]
-
-        def __len__(self):
-            return len(self.image_ids)
-
-        def __getitem__(self, idx):
-            img_name = self.image_ids[idx]
-            img = Image.open(self.root / "images" / img_name).convert("RGB")
-            if self.transform:
-                img = self.transform(img)
-            return img, 0  # dummy label
-
-    dataset = NIHChestXrayDataset(nih_root, transform=transform, max_samples=max_samples)
-    return DataLoader(
-        dataset, batch_size=batch_size, shuffle=False, num_workers=4,
-        pin_memory=True, drop_last=False,
-    )
-
-
-DATASET_LOADERS = {
-    "imagenet_s50":   load_imagenet_s50,
-    "cub200":         load_cub200,
-    "pascal_voc":     load_pascal_voc,
-    "nih_chestxray":  load_nih_chestxray,
+# Pixel size of one attribution-grid cell for each model (224 / P cells per side).
+# Swin's native patch is 4 px (56x56); its maps are resampled to the same 14x14
+# grid as the 16-px models.
+MODEL_GRID_PATCH = {
+    "vit_b16":       16,
+    "deit_b16":      16,
+    "beit_b16":      16,
+    "swin_b":        16,
+    "dino_vitb8":     8,
+    "dinov2_vitb14": 14,
+    "mae_b16":       16,   # ablation A4
 }
 
 
-# ═══════════════════════════════════════════════════════════════════════════
-# Model loading
-# ═══════════════════════════════════════════════════════════════════════════
+def find_weights(weights_dir: str | None, model_name: str, dataset: str) -> Path | None:
+    """
+    Fine-tuned checkpoint for (model, dataset) in ``weights_dir``:
+    ``{model}_{dataset}.pth`` if present, else the newest file matching the
+    trainer's naming ``{model}_ft_{dataset}_{YYYYMMDD}_ep{NNN}.pth``.
+    """
+    if not weights_dir:
+        return None
+    d = Path(weights_dir)
+    exact = d / f"{model_name}_{dataset}.pth"
+    if exact.exists():
+        return exact
+    matches = sorted(d.glob(f"{model_name}_ft_{dataset}_*.pth"))
+    return matches[-1] if matches else None
 
-def load_models(
-    model_names: list[str],
-    num_classes: int = 0,
-) -> Dict[str, nn.Module]:
-    """Load requested models from model_zoo."""
-    models = {}
-    for name in model_names:
-        log.info(f"Loading model: {name}")
-        try:
-            model = load_model(name, num_classes=num_classes, pretrained=True)
-            n_params = sum(p.numel() for p in model.parameters()) / 1e6
-            models[name] = model
-            log.info(f"  ✓ {name} loaded ({n_params:.1f}M params)")
-        except Exception as e:
-            log.error(f"  ✗ Failed to load {name}: {e}")
-    return models
 
+def load_finetuned_model(
+    model_name: str,
+    dataset: str,
+    weights_dir: str | None,
+    allow_random_head: bool = False,
+) -> nn.Module:
+    """
+    Build ``model_name`` with a head sized for ``dataset`` and load its
+    fine-tuned weights. Without weights the head is random, so explanations
+    would describe an untrained classifier: refused unless allow_random_head.
+    """
+    num_classes = NUM_CLASSES[dataset]
+    model = load_model(model_name, num_classes=num_classes, pretrained=True)
+    ckpt = find_weights(weights_dir, model_name, dataset)
+    if ckpt is None:
+        msg = (f"No fine-tuned weights for {model_name} on {dataset} in "
+               f"--weights-dir={weights_dir!r}")
+        if not allow_random_head:
+            raise FileNotFoundError(msg + " (pass --allow-random-head for smoke tests only)")
+        log.warning(f"  ⚠ {msg} — using a RANDOM {num_classes}-class head. "
+                    "Results are NOT valid for reporting.")
+        return model
+    state = torch.load(ckpt, map_location="cpu", weights_only=True)
+    state = state.get("model_state_dict", state)
+    model.load_state_dict(state, strict=True)
+    log.info(f"  ✓ {model_name}/{dataset}: loaded {ckpt.name}")
+    return model
 
 # ═══════════════════════════════════════════════════════════════════════════
 # Run metadata (saved alongside checkpoints for reproducibility)
@@ -345,7 +229,13 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
             "max_samples": args.max_samples,
             "norm_mode": args.norm_mode,
             "patch_size": args.patch_size,
-            "num_classes": args.num_classes,
+            "weights_dir": args.weights_dir,
+            "allow_random_head": args.allow_random_head,
+            "metrics": args.metrics,
+            "robustness_subset": args.robustness_subset,
+            "robustness_samples": args.robustness_samples,
+            "fidelity_ablation_modes": args.fidelity_ablation_modes,
+            "ablations": args.ablations,
             "batch_size": args.batch_size,
             "dry_run": args.dry_run,
         },
@@ -423,21 +313,24 @@ def build_parser() -> argparse.ArgumentParser:
     # Filters
     p.add_argument(
         "--models", nargs="+", default=list(MODEL_REGISTRY.keys()),
-        choices=list(MODEL_REGISTRY.keys()),
+        choices=ALL_MODELS,
         metavar="MODEL",
-        help=f"Models to evaluate. Default: all ({', '.join(MODEL_REGISTRY.keys())})",
+        help=f"Models to evaluate. Default: the main 6 ({', '.join(MODEL_REGISTRY.keys())}). "
+             "Ablation A4 also needs: mae_b16.",
     )
     p.add_argument(
         "--explainers", nargs="+", default=list(EXPLAINER_REGISTRY.keys()),
-        choices=list(EXPLAINER_REGISTRY.keys()),
+        choices=list(ALL_EXPLAINERS),
         metavar="EXPLAINER",
-        help=f"Explainers to evaluate. Default: all ({', '.join(EXPLAINER_REGISTRY.keys())})",
+        help=f"Explainers to evaluate. Default: E1–E6 ({', '.join(EXPLAINER_REGISTRY.keys())}). "
+             f"Optional: {', '.join(OPTIONAL_EXPLAINER_REGISTRY)}. "
+             f"Ablation variants: {', '.join(ABLATION_EXPLAINER_REGISTRY)}.",
     )
     p.add_argument(
-        "--datasets", nargs="+", default=list(DATASET_LOADERS.keys()),
-        choices=list(DATASET_LOADERS.keys()),
+        "--datasets", nargs="+", default=list(DATASET_CLASSES.keys()),
+        choices=list(DATASET_CLASSES.keys()),
         metavar="DATASET",
-        help=f"Datasets to evaluate. Default: all ({', '.join(DATASET_LOADERS.keys())})",
+        help=f"Datasets to evaluate. Default: all ({', '.join(DATASET_CLASSES.keys())})",
     )
 
     # Execution
@@ -463,12 +356,50 @@ def build_parser() -> argparse.ArgumentParser:
         help="Attribution normalisation mode (default: minmax).",
     )
     p.add_argument(
-        "--patch-size", type=int, default=16,
-        help="ViT patch size in pixels (default: 16).",
+        "--patch-size", type=int, default=None,
+        help="Override the attribution-grid patch size for ALL models. "
+             "Default: per model (16; DINO-B/8 → 8; DINOv2-B/14 → 14).",
     )
     p.add_argument(
-        "--num-classes", type=int, default=0,
-        help="Number of downstream classes for model heads. 0 = feature extractor (default: 0).",
+        "--weights-dir", type=str, default=None,
+        help="Directory with fine-tuned checkpoints, named {model}_{dataset}.pth "
+             "or {model}_ft_{dataset}_*.pth (trainer output). Required unless "
+             "--allow-random-head.",
+    )
+    p.add_argument(
+        "--allow-random-head", action="store_true",
+        help="Smoke tests only: if a fine-tuned checkpoint is missing, use the "
+             "pre-trained backbone with a random head. Results are NOT valid.",
+    )
+    p.add_argument(
+        "--metrics", nargs="+", default=list(FAMILIES), choices=list(ALL_FAMILIES),
+        help=f"Metric families computed per sample (default: {' '.join(FAMILIES)}). "
+             "'adversarial' adds PGD robustness on the robustness subset.",
+    )
+    p.add_argument(
+        "--fidelity-ablation-modes", nargs="+", default=[], choices=list(MASK_MODES),
+        help="Ablation A3: also compute fidelity with these masking baselines "
+             "(columns suffixed [zero]/[blur]); the main columns use 'mean'.",
+    )
+    p.add_argument(
+        "--ablations", action="store_true",
+        help="Shortcut for ablations A1–A3: add the raw-attention variants to "
+             "--explainers and --fidelity-ablation-modes zero blur. "
+             "For A4 also pass --models vit_b16 mae_b16 (needs MAE weights).",
+    )
+    p.add_argument(
+        "--robustness-subset", type=int, default=100,
+        help="Compute R1–R3 on the first N images of each combination "
+             "(default: 100; R1 re-runs the explainer --robustness-samples times "
+             "per image). Use -1 for all images.",
+    )
+    p.add_argument(
+        "--robustness-samples", type=int, default=20,
+        help="Perturbations per image for R1 Max-Sensitivity (default: 20).",
+    )
+    p.add_argument(
+        "--num-workers", type=int, default=4,
+        help="DataLoader worker processes (default: 4).",
     )
     p.add_argument(
         "--dry-run", action="store_true",
@@ -493,6 +424,13 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+
+    # ── Ablation shortcut (before metadata is saved) ─────────────────────
+    if args.ablations:
+        for name in ["raw_attention", "rollout", *ABLATION_EXPLAINER_REGISTRY]:
+            if name not in args.explainers:
+                args.explainers.append(name)
+        args.fidelity_ablation_modes = sorted({*args.fidelity_ablation_modes, "zero", "blur"})
 
     # ── Handle dry-run defaults ──────────────────────────────────────────
     if args.dry_run:
@@ -535,75 +473,102 @@ def main(argv: list[str] | None = None) -> None:
     # ── Save run metadata ────────────────────────────────────────────────
     _save_run_metadata(args, args.checkpoint_dir)
 
-    # ── Step 1: Load models ──────────────────────────────────────────────
-    log.info("[1/3] Loading models...")
-    models = load_models(args.models, num_classes=args.num_classes)
-    if not models:
-        log.error("No models loaded successfully. Aborting.")
-        sys.exit(1)
-    log.info(f"  {len(models)}/{len(args.models)} models loaded successfully.")
+    explainers = {
+        name: cls for name, cls in ALL_EXPLAINERS.items()
+        if name in args.explainers
+    }
 
-    # ── Step 2: Load datasets ────────────────────────────────────────────
-    log.info("[2/3] Loading datasets...")
+    # ── Step 1: Load datasets ────────────────────────────────────────────
+    log.info("[1/2] Loading datasets...")
     datasets: Dict[str, DataLoader] = {}
     for ds_name in args.datasets:
-        log.info(f"  Loading dataset: {ds_name}")
         try:
-            loader = DATASET_LOADERS[ds_name](
-                args.data_root,
+            loader = build_eval_loader(
+                ds_name, args.data_root,
                 batch_size=args.batch_size,
                 max_samples=args.max_samples,
+                num_workers=args.num_workers,
             )
             datasets[ds_name] = loader
-            n = len(loader.dataset)
-            log.info(f"  ✓ {ds_name}: {n} samples, {len(loader)} batches")
+            log.info(f"  ✓ {ds_name}: {len(loader.dataset)} samples, {len(loader)} batches")
         except Exception as e:
             log.error(f"  ✗ Failed to load {ds_name}: {e}")
-            log.error(f"    Make sure the dataset is at: {args.data_root}/{ds_name}")
 
     if not datasets:
         log.error("No datasets loaded successfully. Aborting.")
         sys.exit(1)
-    log.info(f"  {len(datasets)}/{len(args.datasets)} datasets loaded successfully.")
 
-    # ── Step 3: Build explainer registry (filtered) ──────────────────────
-    explainers = {
-        name: cls for name, cls in EXPLAINER_REGISTRY.items()
-        if name in args.explainers
-    }
-    log.info(f"  Explainers registered: {', '.join(explainers.keys())}")
-
-    # ── Combination count ────────────────────────────────────────────────
-    total_combos = len(models) * len(explainers) * len(datasets)
+    total_combos = len(datasets) * len(args.models) * len(explainers)
     log.info(
         f"  Total combinations: {len(datasets)} datasets × "
-        f"{len(models)} models × {len(explainers)} explainers = {total_combos}"
+        f"{len(args.models)} models × {len(explainers)} explainers = {total_combos}"
     )
 
-    # ── Step 4: Run Phase3Runner ─────────────────────────────────────────
-    log.info("[3/3] Starting Phase3Runner evaluation matrix...")
+    # ── Step 2: Evaluate one (dataset, model) pair at a time ─────────────
+    # Each dataset has its own fine-tuned head, so models are loaded per
+    # dataset, and freed before the next one to bound memory.
+    log.info("[2/2] Running Phase3Runner...")
     t0 = time.time()
-
-    runner = Phase3Runner(
-        models=models,
-        explainers=explainers,
-        datasets=datasets,
-        device=device,
+    results: Dict[str, Any] = {}
+    failures: list[str] = []
+    metric_computer = SampleMetricComputer(
+        families=args.metrics,
         norm_mode=args.norm_mode,
-        patch_size=args.patch_size,
+        robustness_subset=None if args.robustness_subset < 0 else args.robustness_subset,
+        robustness_samples=args.robustness_samples,
+        fidelity_ablation_modes=args.fidelity_ablation_modes,
+        input_mean=IMAGENET_MEAN,
+        input_std=IMAGENET_STD,
+        seed=args.seed,
     )
 
-    results = runner.run(
-        checkpoint_dir=args.checkpoint_dir,
-        seed=args.seed,
-        max_batches=args.max_batches,
-    )
+    for ds_name, loader in datasets.items():
+        for model_name in args.models:
+            keys = [f"{ds_name}-{model_name}-{e}" for e in explainers]
+            if all((Path(args.checkpoint_dir) / f"{k}.pkl").exists() for k in keys):
+                log.info(f"  ↩ {ds_name}/{model_name}: all explainers checkpointed — skipping")
+                continue
+            try:
+                model = load_finetuned_model(
+                    model_name, ds_name, args.weights_dir, args.allow_random_head,
+                )
+            except Exception as e:
+                log.error(f"  ✗ {model_name}/{ds_name}: {e}")
+                failures.append(f"{model_name}/{ds_name}")
+                continue
+
+            runner = Phase3Runner(
+                models={model_name: model},
+                explainers=explainers,
+                datasets={ds_name: loader},
+                device=device,
+                norm_mode=args.norm_mode,
+                patch_size=args.patch_size or MODEL_GRID_PATCH[model_name],
+                metric_computer=metric_computer,
+            )
+            results.update(runner.run(
+                checkpoint_dir=args.checkpoint_dir,
+                seed=args.seed,
+                max_batches=args.max_batches,
+            ))
+            del model, runner
+            if device.type == "cuda":
+                torch.cuda.empty_cache()
 
     elapsed = time.time() - t0
     n_combos = len(results)
 
     # ── Generate summary CSV from all checkpoints ────────────────────────
     _generate_summary_csv(args.checkpoint_dir)
+
+    # ── Aggregate per-sample metrics for Phase 4 ─────────────────────────
+    agg_paths = None
+    try:
+        agg_paths = aggregate(args.checkpoint_dir)
+        log.info(f"Aggregated results: {agg_paths[0]} and {agg_paths[1]}")
+    except Exception as e:
+        log.error(f"Aggregation failed: {e}")
+        failures.append(f"aggregation ({e})")
 
     # ── Summary ──────────────────────────────────────────────────────────
     summary = (
@@ -628,14 +593,22 @@ def main(argv: list[str] | None = None) -> None:
     existing_ckpts = Phase3Runner.list_checkpoints(args.checkpoint_dir)
     summary += f"\n  Total checkpoints on disk: {len(existing_ckpts)}/{total_combos}\n"
 
+    if agg_paths:
+        summary += f"\n  Per-sample results : {agg_paths[0]}\n  Summary            : {agg_paths[1]}\n"
     summary += (
         "\n  Next steps:\n"
         "    • Verify checkpoints: python -m metrics.runner --list-checkpoints\n"
-        "    • Run Phase 4 analysis: python scripts/phase4_correlation_analysis.py\n"
+        "    • Run Phase 4 analysis: python scripts/phase4_correlation_analysis.py "
+        "--results_csv <checkpoint-dir>/aggregated_results.csv\n"
         + "=" * 65 + "\n"
     )
 
+    if failures:
+        summary += f"\n  FAILED: {', '.join(failures)}\n"
+
     print(summary)
+    if failures:
+        sys.exit(1)
     log.info(f"Phase 3 complete. {n_combos} new combinations, {elapsed:.1f}s elapsed.")
 
 

@@ -15,6 +15,7 @@ from .swin_b       import load_swin_b
 from .beit_b16     import load_beit_b16
 from .dino_vitb8   import load_dino_vitb8
 from .dinov2_vitb14 import load_dinov2_vitb14
+from .mae_b16      import load_mae_b16      # ablation A4 only
 
 MODEL_REGISTRY = {
     "vit_b16":       load_vit_b16,
@@ -23,6 +24,11 @@ MODEL_REGISTRY = {
     "beit_b16":      load_beit_b16,
     "dino_vitb8":    load_dino_vitb8,
     "dinov2_vitb14": load_dinov2_vitb14,
+}
+
+# Models used only by Phase 4 ablations (not part of the main 6-model matrix)
+ABLATION_MODEL_REGISTRY = {
+    "mae_b16":       load_mae_b16,       # A4: MAE vs supervised ViT-B/16
 }
 
 
@@ -38,12 +44,13 @@ def load_model(name: str, num_classes: int = 0, **kwargs):
         Number of downstream classes.  0 = strip classifier head
         (returns CLS-token features only).
     """
-    if name not in MODEL_REGISTRY:
+    registry = {**MODEL_REGISTRY, **ABLATION_MODEL_REGISTRY}
+    if name not in registry:
         raise ValueError(
             f"Unknown model '{name}'. "
-            f"Available: {list(MODEL_REGISTRY.keys())}"
+            f"Available: {list(registry.keys())}"
         )
-    return MODEL_REGISTRY[name](num_classes=num_classes, **kwargs)
+    return registry[name](num_classes=num_classes, **kwargs)
 
 
-__all__ = list(MODEL_REGISTRY.keys()) + ["load_model", "MODEL_REGISTRY"]
+__all__ = list(MODEL_REGISTRY.keys()) + ["load_mae_b16", "load_model", "MODEL_REGISTRY", "ABLATION_MODEL_REGISTRY"]

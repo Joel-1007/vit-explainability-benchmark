@@ -14,6 +14,10 @@ from typing import Dict, Sequence
 
 import torch
 import torch.nn.functional as F
+import torchvision.transforms.functional as TF
+
+MASK_MODES = ("zero", "mean", "blur")
+BLUR_KERNEL, BLUR_SIGMA = 51, 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -50,6 +54,8 @@ class FidelityMetrics:
     mask_mode : str
         'zero' to replace masked pixels with 0.
         'mean' to replace masked pixels with the image per-channel mean.
+        'blur' to replace masked pixels with a Gaussian-blurred copy of the
+               image (kernel 51 px, sigma 10 px; Petsiuk et al., 2018).
     k_fractions : Sequence[float]
         The fractions of top patches to select for the mask.
     """
@@ -59,8 +65,8 @@ class FidelityMetrics:
         mask_mode: str = "mean",
         k_fractions: Sequence[float] = (0.1, 0.2, 0.5),
     ) -> None:
-        if mask_mode not in ("zero", "mean"):
-            raise ValueError(f"Unknown mask_mode '{mask_mode}'. Must be 'zero' or 'mean'.")
+        if mask_mode not in MASK_MODES:
+            raise ValueError(f"Unknown mask_mode '{mask_mode}'. Must be one of {MASK_MODES}.")
         self.mask_mode = mask_mode
         self.k_fractions = tuple(k_fractions)
 
@@ -116,6 +122,8 @@ class FidelityMetrics:
         elif self.mask_mode == "mean":
             # Image per-channel mean (B, C, 1, 1)
             baseline = x.mean(dim=(2, 3), keepdim=True).expand_as(x)
+        elif self.mask_mode == "blur":
+            baseline = TF.gaussian_blur(x, kernel_size=BLUR_KERNEL, sigma=BLUR_SIGMA)
         else:
             raise ValueError(f"Unknown mask_mode: {self.mask_mode}")
 

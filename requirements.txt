@@ -16,6 +16,11 @@ datasets>=2.19.0
 # ── Scientific Stack ────────────────────────────────────────
 numpy>=2.0.0
 scipy>=1.13.0
+scikit-learn>=1.4.0
+
+# ── Graph analysis (explainer interaction graph) ────────────
+networkx>=3.2
+python-louvain>=0.16
 
 # ── Data Analysis & Visualisation ───────────────────────────
 pandas>=2.2.0
