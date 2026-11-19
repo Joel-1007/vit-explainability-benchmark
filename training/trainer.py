@@ -255,6 +255,7 @@ def _save(model, save_dir, hash_log, model_name, dataset, seed, epoch, num_epoch
         "epoch": epoch, "num_epochs": num_epochs, "selection": "final_epoch",
         "val_loss": float(val_out["loss"]), "val_metrics": val_out["metrics"],
         "base_lr": config.get("base_lr", 1e-4), "batch_size": config.get("batch_size", 256),
+        "model_kwargs": config.get("model_kwargs", {}),
         "mixup": "timm Mixup a=0.8, ls=0.1" if task == "single"
                  else "MultiLabelMixup a=0.8 (label mixing, weight product), no label smoothing",
     }

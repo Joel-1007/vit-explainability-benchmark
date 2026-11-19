@@ -196,10 +196,36 @@ def test_rise_masks_to_black():
 
 
 def test_ig_baseline_is_black():
+    """Every path point is α·x, i.e. the straight line from the black image."""
     from explainers import IntegratedGradientsExplainer
     m = _Recorder()
-    IntegratedGradientsExplainer(m, n_steps=4, chunk_size=5).explain(torch.rand(3, 224, 224), 0)
-    assert torch.equal(m.seen[0][0], torch.zeros(3, 224, 224))   # α = 0 → baseline
+    e = IntegratedGradientsExplainer(m, n_steps=4, chunk_size=5)
+    x = torch.rand(3, 224, 224)
+    e.explain(x, 0)
+    alphas, _ = e.quadrature(4, "gausslegendre")
+    for a, p in zip(alphas, m.seen[0]):
+        torch.testing.assert_close(p, a * x)
+    m2 = _Recorder()
+    IntegratedGradientsExplainer(m2, n_steps=4, chunk_size=5, method="trapezoid").explain(x, 0)
+    assert torch.equal(m2.seen[0][0], torch.zeros(3, 224, 224))     # α = 0 node = baseline
+
+
+def test_ig_quadrature_resolves_sharp_feature_near_baseline():
+    """
+    Regression for real ViT behaviour: the path gradient spikes near α = 0.
+    On ∫₀¹ 50·e^{-50α} dα (= 1 − e^{-50}) Gauss–Legendre is accurate at 200
+    nodes while the uniform trapezoid rule is not.
+    """
+    import math
+    from explainers import IntegratedGradientsExplainer as IG
+    truth = 1 - math.exp(-50)
+    g = lambda a: 50 * torch.exp(-50 * a)                          # noqa: E731
+    errs = {}
+    for method in ("gausslegendre", "trapezoid"):
+        a, w = IG.quadrature(200, method)
+        assert w.sum().item() == pytest.approx(1.0, abs=1e-5)
+        errs[method] = abs(float((g(a) * w).sum()) - truth)
+    assert errs["gausslegendre"] < 1e-4 < errs["trapezoid"]
 
 
 def test_lime_fills_with_image_mean():

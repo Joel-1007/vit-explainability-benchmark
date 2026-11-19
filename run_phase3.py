@@ -199,8 +199,13 @@ def load_finetuned_model(
     """
     num_classes = NUM_CLASSES[dataset]
     task = TASK_TYPE[dataset]
-    model = load_model(model_name, num_classes=num_classes, pretrained=True)
     ckpt = find_weights(weights_dir, model_name, dataset, seed)
+    ckpt_data = (torch.load(ckpt, map_location="cpu", weights_only=True)
+                 if ckpt is not None else None)
+    meta = ckpt_data.get("metadata", {}) if isinstance(ckpt_data, dict) else {}
+    # Build the architecture the checkpoint was trained with (e.g. BEiT head pooling)
+    model = load_model(model_name, num_classes=num_classes, pretrained=True,
+                       **meta.get("model_kwargs", {}))
     if ckpt is None:
         seed_txt = f" (seed {seed})" if seed is not None else ""
         msg = (f"No fine-tuned weights for {model_name} on {dataset}{seed_txt} in "
@@ -210,8 +215,6 @@ def load_finetuned_model(
         log.warning(f"  ⚠ {msg} — using a RANDOM {num_classes}-class head. "
                     "Results are NOT valid for reporting.")
         return set_task(model, task, None, "none (random head)")
-    ckpt_data = torch.load(ckpt, map_location="cpu", weights_only=True)
-    meta = ckpt_data.get("metadata", {}) if isinstance(ckpt_data, dict) else {}
     state = ckpt_data.get("model_state_dict", ckpt_data)
     model.load_state_dict(state, strict=True)
     if meta.get("task") not in (None, task):

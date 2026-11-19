@@ -99,3 +99,28 @@ def test_record_model_hashes_covers_every_spec(tmp_path, monkeypatch):
     text = out.read_text()
     for spec in MODEL_SPECS.values():
         assert f"timm ID    : {spec.timm_id}" in text and spec.pretraining[:30] in text
+
+
+def test_beit_pooling_option_and_evaluation_honours_checkpoint(tmp_path, monkeypatch):
+    """CLS head is the protocol default; native mean pooling is available for the
+    pilot comparison, and run_phase3 rebuilds whatever the checkpoint used."""
+    tok = load_model("beit_b16", num_classes=3, pretrained=False)
+    avg = load_model("beit_b16", num_classes=3, pretrained=False, global_pool="avg")
+    assert tok.backbone.global_pool == "token" and avg.backbone.global_pool == "avg"
+    with pytest.raises(ValueError):
+        load_model("beit_b16", num_classes=3, pretrained=False, global_pool="max")
+
+    import run_phase3
+    seen = {}
+
+    def fake_load(name, num_classes=0, pretrained=True, **kw):
+        seen.update(kw)
+        return load_model(name, num_classes=num_classes, pretrained=False, **kw)
+
+    torch.save({"model_state_dict": avg.state_dict(),
+                "metadata": {"task": "single", "model_kwargs": {"global_pool": "avg"}}},
+               tmp_path / "beit_b16_cub200.pth")
+    monkeypatch.setattr(run_phase3, "NUM_CLASSES", {"cub200": 3})
+    monkeypatch.setattr(run_phase3, "load_model", fake_load)
+    m = run_phase3.load_finetuned_model("beit_b16", "cub200", str(tmp_path))
+    assert seen == {"global_pool": "avg"} and m.backbone.global_pool == "avg"

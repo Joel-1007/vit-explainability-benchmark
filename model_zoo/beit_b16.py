@@ -28,6 +28,15 @@ the CLS token like ViT, DINO, DINOv2 and MAE, so CLS-row attention explainers
 is carried over (fc_norm → norm); the head is new in either case. This is a
 deviation from BEiT's own fine-tuning recipe, reported in the paper.
 
+CLS-token caveat (measured on the real weights, 2026-11-19): BEiT's pre-trained
+CLS output is nearly input-invariant — mean cosine similarity of CLS features
+across different images 0.9999 (ViT-B/16: 0.82), while mean-pooled patch
+features vary (0.94). Its supervised stage mean-pooled, so the CLS token never
+had to carry image information; with a CLS head, fine-tuning must learn to
+route it there. The protocol is frozen on the CLS head. ``global_pool="avg"``
+(native head) exists only for a one-off, recorded diagnostic
+(``scripts/finetune.py --beit-pool avg``); it does not change the protocol.
+
 Explainability note
 -------------------
 CLS-token architecture (1 prefix token, 14×14 patch grid); attention includes
@@ -82,17 +91,25 @@ class BEiTB16(nn.Module):
         Load the MIM + supervised IN-22k weights (see module provenance note).
     """
 
-    def __init__(self, num_classes: int = 0, pretrained: bool = True):
+    def __init__(self, num_classes: int = 0, pretrained: bool = True,
+                 global_pool: str = "token"):
         super().__init__()
+        if global_pool not in ("token", "avg"):
+            raise ValueError(f"global_pool must be 'token' or 'avg', got {global_pool!r}")
         # Pre-training normalisation, applied inside the model (pixel-space protocol)
         self.normalize = PixelNormalize(MODEL_SPECS["beit_b16"].mean, MODEL_SPECS["beit_b16"].std)
-        # Classify from the CLS token (benchmark protocol: every CLS-token model
-        # decides through its CLS token, the token CLS-row explainers explain).
-        self.backbone = timm.create_model(
-            TIMM_ID, pretrained=False, num_classes=num_classes, global_pool="token",
-        )
-        if pretrained:
-            self.backbone.load_state_dict(_token_pool_state_dict(num_classes), strict=True)
+        # Frozen protocol: classify from the CLS token (the token CLS-row
+        # explainers explain). "avg" = BEiT's native mean-pooled head, for the
+        # one-off recorded diagnostic only (see module docstring).
+        self.global_pool = global_pool
+        if global_pool == "avg":
+            self.backbone = timm.create_model(TIMM_ID, pretrained=pretrained, num_classes=num_classes)
+        else:
+            self.backbone = timm.create_model(
+                TIMM_ID, pretrained=False, num_classes=num_classes, global_pool="token",
+            )
+            if pretrained:
+                self.backbone.load_state_dict(_token_pool_state_dict(num_classes), strict=True)
         self.num_classes = num_classes
         self.patch_size  = PATCH_SIZE
         self.embed_dim   = self.backbone.embed_dim   # 768
@@ -109,7 +126,8 @@ class BEiTB16(nn.Module):
 
 
 # ---------------------------------------------------------------------------
-def load_beit_b16(num_classes: int = 0, pretrained: bool = True) -> BEiTB16:
+def load_beit_b16(num_classes: int = 0, pretrained: bool = True,
+                  global_pool: str = "token") -> BEiTB16:
     """
     Load BEiT-B/16 (MIM + supervised IN-22k weights, see module docstring).
 
@@ -120,4 +138,4 @@ def load_beit_b16(num_classes: int = 0, pretrained: bool = True) -> BEiTB16:
     pretrained : bool
         Load pre-trained weights.
     """
-    return BEiTB16(num_classes=num_classes, pretrained=pretrained)
+    return BEiTB16(num_classes=num_classes, pretrained=pretrained, global_pool=global_pool)

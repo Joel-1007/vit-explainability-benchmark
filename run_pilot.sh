@@ -92,6 +92,13 @@ else
     echo "       Continuing anyway (runner will error if datasets missing)."
 fi
 
+# --- Step 3b: Real-model explainer smoke test -----------------
+echo ""
+echo "[3b] Explainer smoke test (all models x explainers, real weights) ..."
+uv run python scripts/smoke_test_explainers.py \
+    --data-root "$DATA_ROOT" --n-images 3 --out "$OUTPUT_DIR/smoke" \
+    || { echo "Smoke test failed — inspect $OUTPUT_DIR/smoke before running the pilot."; exit 1; }
+
 # --- Step 4: Run pilot benchmark ------------------------------
 echo ""
 echo "[4/4] Running PILOT benchmark..."

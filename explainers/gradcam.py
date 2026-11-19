@@ -10,9 +10,20 @@ via Gradient-based Localization."  Adapted for ViT patch embeddings.
 
 Algorithm
 ---------
-Let F ∈ (B, N, D) be the output activations of the LAST transformer block
-(patch tokens only, CLS excluded) and let g ∈ (B, N, D) be the gradient of
-the target-class logit w.r.t. those activations.
+Let F ∈ (B, N, D) be the activations of the TARGET LAYER (patch tokens only,
+prefix tokens excluded) and let g ∈ (B, N, D) be the gradient of the
+target-class logit w.r.t. those activations.
+
+Target layer
+------------
+• CLS-token ViTs (ViT, DeiT, BEiT, DINO, DINOv2, MAE): the ``norm1`` output of
+  the LAST block — the tokens the final attention mixes into the CLS token.
+  The last block's *output* must NOT be used: the classifier reads only the
+  CLS token from it (through a per-token LayerNorm), so the gradient w.r.t.
+  every patch token there is exactly zero and the CAM collapses to 0. This is
+  the standard ViT recipe (pytorch-grad-cam: ``blocks[-1].norm1``).
+• Swin-B (no CLS token): the last stage's output feature map, which the
+  classifier mean-pools, so every position receives gradient.
 
 Global-average-pool gradients over patch dimension:
     α_d = mean_n(g[b=0, n, d])     d = 1..D
@@ -39,7 +50,7 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 
-from .base import BaseExplainer, _get_timm_blocks, _num_prefix_tokens
+from .base import BaseExplainer, _get_timm_blocks, _has_cls_token, _num_prefix_tokens
 
 
 class GradCAMExplainer(BaseExplainer):
@@ -85,8 +96,7 @@ class GradCAMExplainer(BaseExplainer):
         -------
         (P, P) float32 tensor with ReLU-gated attribution.
         """
-        blocks = _get_timm_blocks(self.model)
-        target_block = blocks[-1]
+        target_block = gradcam_target_layer(self.model)
 
         activations = [None]
         gradients   = [None]
@@ -153,3 +163,10 @@ class GradCAMExplainer(BaseExplainer):
 
         return cam
 
+
+def gradcam_target_layer(model: "torch.nn.Module") -> "torch.nn.Module":
+    """Layer whose activations GradCAM uses (see module docstring)."""
+    last = _get_timm_blocks(model)[-1]
+    if _has_cls_token(model) and hasattr(last, "norm1"):
+        return last.norm1
+    return last

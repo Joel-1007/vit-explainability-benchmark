@@ -53,6 +53,9 @@ def main(argv=None) -> str:
     p.add_argument("--no-amp", action="store_true")
     p.add_argument("--max-steps", type=int, default=None, help="Smoke tests only")
     p.add_argument("--no-pretrained", action="store_true", help="Smoke tests only")
+    p.add_argument("--beit-pool", choices=["token", "avg"], default="token",
+                   help="BEiT head: CLS token (frozen protocol) or native mean pooling "
+                        "(one-off recorded diagnostic only; stored in the checkpoint)")
     args = p.parse_args(argv)
 
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -64,7 +67,9 @@ def main(argv=None) -> str:
         set_seed(args.seed)                     # before the head is initialised
     task = TASK_TYPE[args.dataset]
     num_classes = NUM_CLASSES[args.dataset]
-    model = load_model(args.model, num_classes=num_classes, pretrained=not args.no_pretrained)
+    model_kwargs = {"global_pool": args.beit_pool} if args.model == "beit_b16" else {}
+    model = load_model(args.model, num_classes=num_classes, pretrained=not args.no_pretrained,
+                       **model_kwargs)
 
     train_tf, val_tf = build_transforms()
     train_ds, val_ds = build_train_val(args.dataset, args.data_root, train_tf, val_tf)
@@ -89,6 +94,7 @@ def main(argv=None) -> str:
         "batch_size": loader_bs * accum, "accum_steps": accum,
         "amp": cfg.get("amp", True) and not args.no_amp,
         "save_dir": args.save_dir, "max_steps": args.max_steps,
+        "model_kwargs": model_kwargs,
     }
     if task == MULTI and cfg.get("class_weighted_loss", False):
         config["pos_weight"] = positive_weights(train_ds)

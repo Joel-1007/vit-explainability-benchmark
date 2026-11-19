@@ -549,12 +549,43 @@ def _manual_gradcam(model, block, x, target, n_prefix, P):
 def test_gradcam_respects_token_layout(arch, n_prefix):
     import timm
     from explainers import GradCAMExplainer
-    from explainers.base import _get_timm_blocks
+    from explainers.gradcam import gradcam_target_layer
 
     torch.manual_seed(0)
     model = timm.create_model(arch, pretrained=False, num_classes=5).eval()
     x = torch.randn(3, 224, 224)
     out = GradCAMExplainer(model, patch_size=16).explain(x, 3)
-    ref = _manual_gradcam(model, _get_timm_blocks(model)[-1], x, 3, n_prefix, 14)
+    ref = _manual_gradcam(model, gradcam_target_layer(model), x, 3, n_prefix, 14)
     assert out.shape == (14, 14)
     assert torch.allclose(out, ref, atol=1e-5)
+
+
+@pytest.mark.parametrize("arch", ["vit_tiny_patch16_224", "deit_tiny_distilled_patch16_224"])
+def test_gradcam_target_layer_receives_patch_gradients(arch):
+    """
+    Regression: the last block's OUTPUT gets zero gradient on every patch token
+    (the head reads only the CLS token through a per-token LayerNorm), which made
+    GradCAM all-zero on CLS-token ViTs. Its norm1 input must get non-zero gradient.
+    """
+    import timm
+    from explainers import GradCAMExplainer
+    from explainers.base import _get_timm_blocks, _num_prefix_tokens
+    from explainers.gradcam import gradcam_target_layer
+
+    torch.manual_seed(0)
+    model = timm.create_model(arch, pretrained=False, num_classes=5).eval()
+    x = torch.randn(1, 3, 224, 224)
+
+    def patch_grad(layer):
+        g = {}
+        h = layer.register_full_backward_hook(lambda m, gi, go: g.__setitem__("g", go[0]))
+        model.zero_grad()
+        model(x)[0, 2].backward()
+        h.remove()
+        n_pre = _num_prefix_tokens(model, g["g"].shape[1])
+        return g["g"][0, n_pre:].abs().sum().item()
+
+    assert patch_grad(_get_timm_blocks(model)[-1]) == 0.0          # old target: no signal
+    assert patch_grad(gradcam_target_layer(model)) > 0.0           # new target: signal
+    cam = GradCAMExplainer(model).explain(x[0], 2)
+    assert cam.std() > 0

@@ -94,6 +94,15 @@ from the HF Hub repo `timm/<timm ID>` and its SHA-256 is logged in `model_hashes
 > CLS + distillation heads (E1/E2/E4 read the CLS row; the distillation path is not
 > explained by them — documented limitation). Swin mean-pools (no CLS token).
 > `verify_model_zoo.py` checks the pooling of every model.
+>
+> **BEiT CLS-head caveat (recorded diagnostic; decision frozen).** On the real weights,
+> BEiT's pre-trained CLS output is nearly input-invariant (mean cosine similarity of CLS
+> features across different images 0.9999; ViT-B/16 0.82; BEiT's mean-pooled patch
+> features 0.94): its supervised stage mean-pooled, so fine-tuning must teach the CLS token
+> to carry image information. **The protocol is frozen: BEiT uses the CLS-token head.**
+> A bounded diagnostic — one pilot fine-tune per head (`scripts/finetune.py --beit-pool
+> token|avg`) — may be run once and its validation results recorded here and in the paper
+> as a limitation. It does not change the protocol.
 MAE-ViT-B/16 is not part of the main matrix; it is the supervised-vs-MAE comparison of
 ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable).
 
@@ -1460,12 +1469,49 @@ Key invariants:
 | --- | --------------------------- | -------------------------- | ------------------ | ------ | ------------------------------ |
 | E1  | `RawAttentionExplainer`     | Raw CLS attention          | `raw_attention.py` | ✗      | Last block, mean over heads    |
 | E2  | `AttentionRolloutExplainer` | Attention Rollout          | `rollout.py`       | ✗      | Recursive Â product            |
-| E3  | `GradCAMExplainer`          | GradCAM                    | `gradcam.py`       | ✓      | Hook-based, ReLU gated         |
+| E3  | `GradCAMExplainer`          | GradCAM                    | `gradcam.py`       | ✓      | Target layer: last block `norm1` (CLS ViTs), last stage (Swin); ReLU gated |
 | E4  | `CheferLRPExplainer`        | Chefer et al. LRP          | `chefer_lrp.py`    | ✗      | Pure-PyTorch reimplementation  |
 | E5  | `RISEExplainer`             | RISE (Petsiuk et al. 2018) | `rise.py`          | ✓      | 4000 float16 masks; chunked    |
 | E6  | `LIMEExplainer`             | LIME (patch-grid)          | `lime.py`          | ✓      | Ridge regression on P² patches |
 | E7  | `DIMEExplainer`             | DIME                       | `dime.py`          | —      | ⚠ Placeholder (see below)      |
-| E8  | `IntegratedGradientsExplainer` | Integrated Gradients    | `integrated_gradients.py` | ✓ | Optional; 50-step path, patch sums |
+| E8  | `IntegratedGradientsExplainer` | Integrated Gradients    | `integrated_gradients.py` | ✓ | Optional; 400-node Gauss–Legendre path integral, black baseline, patch sums |
+
+> [!IMPORTANT]
+> **GradCAM target layer (fixed 2026-11-19).** GradCAM previously hooked the *output* of the
+> last transformer block. On CLS-token ViTs the classifier reads only the CLS token from
+> that output (through a per-token LayerNorm), so the gradient w.r.t. every patch token is
+> exactly zero and the map collapsed to zero on six of seven models. It now hooks the last
+> block's `norm1` (the tokens the final attention mixes into the CLS token; the standard
+> pytorch-grad-cam ViT recipe); Swin keeps its last-stage feature map. Found by the
+> real-model smoke test (confirmed on real ViT-B/16: patch-token gradient 0.0 at the old
+> layer, 35.8 at `norm1`); regression test `test_gradcam_target_layer_receives_patch_gradients`.
+>
+> **Integrated Gradients quadrature (fixed 2026-11-19).** On real ViTs the path gradient from
+> the black baseline is extremely spiky near α = 0 (ViT-B/16: +2.2 at α = 0, −23.4 at
+> α = 0.02, smooth beyond ≈ 0.3; autograd matches finite differences). A uniform 50-step
+> trapezoid rule left completeness gaps of 28–146% that did not shrink monotonically with
+> more steps. IG now uses Gauss–Legendre quadrature (Captum's default) with 400 nodes:
+> ViT-B/16 0.5–2.2% at 200 nodes; DeiT-B needs 400 (9.4% → 0.0–0.2%). The smoke test checks
+> |gap| ≤ 5% · max(|Δf|, 1 logit) per model.
+>
+> **Real-weight smoke results (CPU, 2 synthetic images, RISE 300 masks, LIME 150 samples,
+> random 10-class heads, 2026-11-19).** ViT-B/16 73/73, DeiT-B 73/73, Swin-B 36/36 checks
+> pass. Open flags, recorded rather than tuned away: BEiT — RISE maps identical across the
+> two images (consistent with the input-invariant CLS output above and an untrained head);
+> DINOv2 — IG completeness gap 11% at 400 nodes; MAE — RISE target sensitivity advisory
+> (ρ = 0.999, untrained head). DINO ViT-B/8 was not run locally (CPU cost). All four are
+> re-checked on the server with real images and fine-tuned heads (`run_pilot.sh`).
+
+### 3.1.3 Real-model explainer smoke test
+
+`scripts/smoke_test_explainers.py` runs every model × explainer pair on real weights (or a
+fine-tuned checkpoint) for a few images and checks compatibility (Swin must refuse
+CLS-attention explainers), map shape, finiteness, non-degeneracy, determinism, input
+sensitivity, target sensitivity (class-specific methods must change with the target;
+raw attention / rollout must not), input-gradient validity, IG completeness (≤ 5%) and
+attention extraction for every block (shape, rows sum to 1). It writes `smoke_report.csv`,
+`smoke_summary.json` and one overlay grid per model (`<model>_maps.png`) for visual
+inspection, and exits non-zero on any failure. `run_pilot.sh` runs it before the pilot.
 
 **Effective method count.** The main matrix runs **six** explainers (E1–E6); E7 is a
 stub, so the benchmark does not claim seven. On Swin-B only E3, E5, E6 (and E8) apply.
