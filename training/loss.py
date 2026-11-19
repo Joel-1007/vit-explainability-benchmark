@@ -1,95 +1,55 @@
 """
-loss.py — Loss functions (Task 1.2 §5.7)
+loss.py — Loss functions (Task 1.2 §5.7), by task type (utils/tasks.py).
 
-Training  : SoftTargetCrossEntropy  (required when Mixup is active —
-            Mixup outputs soft/mixed labels, not integer class indices)
-Validation : CrossEntropyLoss(label_smoothing=0.1)
+Single-label (CUB-200, ImageNet-S-50)
+    train : SoftTargetCrossEntropy (Mixup + label smoothing 0.1 produce soft targets)
+    val   : CrossEntropyLoss(label_smoothing=0.1)
 
-NIH ChestX-ray14 special case
-------------------------------
-NIH ChestX-ray14 is a multi-label, class-imbalanced dataset (14 pathology
-classes; 8 have GT bounding boxes for localization evaluation).
-build_loss() returns a class-weighted BCEWithLogitsLoss for this dataset.
-Class weights must be computed on the training set and passed in.
-
-NOTE: CheXpert was originally planned but replaced by NIH ChestX-ray14
-because CheXpert has no spatial GT annotations (Task 1.3 §1.2).
-
-Usage
------
-from training.loss import build_loss
-
-criterion_train, criterion_val = build_loss(dataset="cub200")
-criterion_train, criterion_val = build_loss(
-    dataset="nih_chestxray", class_weights=weights_tensor
-)
+Multi-label (PASCAL VOC, NIH ChestX-ray14)
+    train/val : MaskedBCEWithLogits — mean over valid (image, class) entries,
+                with per-entry weights w ∈ [0, 1] (0 = ignored, e.g. VOC
+                difficult-only classes; fractional after Mixup is not used —
+                see training/mixup.py) and optional per-class pos_weight.
+    No label smoothing: smoothing positives in sparse, imbalanced multi-label
+    targets shifts every class's operating point.
+    pos_weight: NIH uses N_neg/N_pos per class from the training split
+    (configs/nih_chestxray.yaml: class_weighted_loss); VOC uses none.
 """
 
 from __future__ import annotations
 
+from typing import Optional
+
 import torch
 import torch.nn as nn
-from timm.loss import SoftTargetCrossEntropy, LabelSmoothingCrossEntropy
+import torch.nn.functional as F
+from timm.loss import SoftTargetCrossEntropy
 
-# Datasets that need special loss handling
-# "chexpert" kept as alias for backwards compatibility (replaced by nih_chestxray
-# per Task 1.3 §1.2 — CheXpert has no spatial GT for localization metrics).
-_MULTILABEL_DATASETS  = {"nih_chestxray", "chexpert"}
-_STANDARD_DATASETS    = {"cub200", "pascal_voc", "imagenet", "imagenet_s50"}
+from utils.tasks import MULTI, SINGLE
 
 
-def build_loss(
-    dataset: str = "cub200",
-    label_smoothing: float = 0.1,
-    class_weights: torch.Tensor | None = None,
-) -> tuple[nn.Module, nn.Module]:
-    """
-    Return (train_criterion, val_criterion) for a given dataset.
+class MaskedBCEWithLogits(nn.Module):
+    """sum(w · BCE(z, y; pos_weight)) / sum(w)."""
 
-    Parameters
-    ----------
-    dataset : str
-        One of: 'cub200', 'pascal_voc', 'imagenet', 'imagenet_s50',
-        'nih_chestxray'.  ('chexpert' accepted as deprecated alias.)
-    label_smoothing : float
-        Label smoothing for the validation criterion (default 0.1, §5.1).
-    class_weights : Tensor | None
-        Per-class weights for 'chexpert' class-imbalance correction.
-        Shape: (num_classes,).  Ignored for standard datasets.
+    def __init__(self, pos_weight: Optional[torch.Tensor] = None) -> None:
+        super().__init__()
+        self.register_buffer("pos_weight", None if pos_weight is None else pos_weight.float())
 
-    Returns
-    -------
-    train_criterion : nn.Module
-        Used inside the training loop (with Mixup-produced soft labels).
-    val_criterion : nn.Module
-        Used during validation (hard integer labels).
-    """
-    ds = dataset.lower().replace("-", "_")
+    def forward(self, logits: torch.Tensor, targets: torch.Tensor,
+                weights: Optional[torch.Tensor] = None) -> torch.Tensor:
+        loss = F.binary_cross_entropy_with_logits(
+            logits, targets.float(), reduction="none", pos_weight=self.pos_weight)
+        if weights is None:
+            return loss.mean()
+        return (loss * weights).sum() / weights.sum().clamp(min=1.0)
 
-    if ds in _MULTILABEL_DATASETS:
-        # NIH ChestX-ray14 (or CheXpert alias) — multi-label binary classification
-        # with severe class imbalance.  BCEWithLogitsLoss with per-class pos_weight.
-        dataset_label = "NIH ChestX-ray14" if "nih" in ds else "CheXpert"
-        if class_weights is None:
-            print(
-                f"[WARNING] No class_weights provided for {dataset_label}. "
-                "Consider computing pos_weight from training set label frequencies:\n"
-                "  pos_weight[c] = (N - N_pos_c) / N_pos_c"
-            )
-        train_criterion = nn.BCEWithLogitsLoss(pos_weight=class_weights)
-        val_criterion   = nn.BCEWithLogitsLoss(pos_weight=class_weights)
 
-    elif ds in _STANDARD_DATASETS:
-        # Standard single-label classification + Mixup compatibility
-        train_criterion = SoftTargetCrossEntropy()          # works with soft labels
-        val_criterion   = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
-
-    else:
-        raise ValueError(
-            f"Unknown dataset '{dataset}'. "
-            f"Supported: {sorted(_MULTILABEL_DATASETS | _STANDARD_DATASETS)}\n"
-            "Note: use 'nih_chestxray' for the medical domain dataset "
-            "(CheXpert was superseded per Task 1.3 §1.2)."
-        )
-
-    return train_criterion, val_criterion
+def build_loss(task: str = SINGLE, label_smoothing: float = 0.1,
+               pos_weight: Optional[torch.Tensor] = None):
+    """Return (train_criterion, val_criterion) for a task type."""
+    if task == MULTI:
+        crit = MaskedBCEWithLogits(pos_weight)
+        return crit, crit
+    if task == SINGLE:
+        return SoftTargetCrossEntropy(), nn.CrossEntropyLoss(label_smoothing=label_smoothing)
+    raise ValueError(f"Unknown task {task!r}")

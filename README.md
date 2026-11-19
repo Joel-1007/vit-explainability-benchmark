@@ -20,7 +20,7 @@ Existing evaluation frameworks for Vision Transformer (ViT) explanations are oft
 | Dimension | Metrics | What it measures |
 |-----------|---------|------------------|
 | **Fidelity (F1–F3)** | Sufficiency, Comprehensiveness, Log-odds | Does removing highlighted patches destroy model confidence? |
-| **Localization (L1–L4)** | mIoU, Pointing Game, EGT, CalibGap | Does the explanation highlight the object of interest? |
+| **Localization (L1–L4)** | mIoU, Pointing Game, EGT, correctness-conditional localisation gap (CLG) | Does the explanation highlight the object of interest? |
 | **Robustness (R1–R3)** | MaxSens, ModelRand, HeadPerm | Is the explanation stable and model-sensitive? |
 | **Complexity (C1–C3)** | Gini, Entropy, Effective Mass Ratio | Is the explanation parsimonious and interpretable? |
 
@@ -101,11 +101,13 @@ python run_phase3.py --data-root /path/to/datasets \
 
 The benchmark automatically checkpoints each `(dataset, model, explainer)` combination as a `.pkl` file, so interrupted runs can be resumed seamlessly.
 
-**Outputs.** Every image gets localization (L1–L3), complexity (C1–C3), fidelity (F1–F3) and correctness; robustness (R1–R3) is computed on the first `--robustness-subset` images per combination (default 100, `-1` = all) because R1 re-runs the explainer `--robustness-samples` times per image. At the end of a run the checkpoint dir contains `aggregated_results.csv` (one row per sample, the Phase 4 input) and `combination_summary.csv` (means, accuracy and L4 CalibGap per combination). Rebuild both at any time with `python -m metrics.aggregate --checkpoint-dir results/phase3`. Restrict families with `--metrics localization complexity`.
+**Outputs.** Every image gets localization (L1–L3), complexity (C1–C3), fidelity (F1–F3) and correctness; robustness (R1–R3) is computed on the first `--robustness-subset` images per combination (default 100, `-1` = all) because R1 re-runs the explainer `--robustness-samples` times per image. At the end of a run the checkpoint dir contains `aggregated_results.csv` (one row per sample, the Phase 4 input) and `combination_summary.csv` (means, accuracy and L4 CLG per combination). Rebuild both at any time with `python -m metrics.aggregate --checkpoint-dir results/phase3`. Restrict families with `--metrics localization complexity`.
 
 **Ablations (Phase 4, A1–A4).** `--ablations` adds the raw-attention variants for A1 (patch- vs CLS-token attention) and A2 (last 3 / all layers; rollout), and computes fidelity with zero and blur masking for A3 (columns suffixed `[zero]`/`[blur]`). A4 compares `vit_b16` with `mae_b16` (MAE pre-training, same architecture): add `--models vit_b16 mae_b16` and fine-tuned MAE weights. `scripts/phase4_ablations.py` reports means, stds, Cohen's d, Wilcoxon and Bonferroni p-values; ablation rows and columns are excluded from the main correlation, factor and ranking analyses. `--metrics ... adversarial` adds PGD robustness (ε = 0.03 in pixel units) on the robustness subset.
 
 **Seeds, statistics, coverage.** `--finetune-seeds 0 1 2` evaluates one fine-tuned checkpoint per seed (`seed_summary.csv` gives across-seed std). `scripts/compare_explainers.py` runs paired explainer comparisons with effect sizes and Holm correction; `class_summary.csv` and `*_macro` columns expose class imbalance; `coverage.csv` marks unsupported explainer–model pairs instead of scoring them. `scripts/audit_datasets.py --data-root DIR` audits splits, labels, annotations and NIH patient leakage.
+
+**Fine-tuning.** `python scripts/finetune.py --model vit_b16 --dataset pascal_voc --data-root /data --seed 0 --save-dir checkpoints` fine-tunes one (model, dataset, seed) with the standard protocol; VOC and NIH are multi-label (sigmoid, masked BCE, multi-label Mixup) and get per-class thresholds estimated on validation data, frozen in the checkpoint. Splits never overlap the evaluation set (`utils/train_datasets.py`).
 
 **Fine-tuned weights.** Each dataset needs its own fine-tuned model. Pass `--weights-dir DIR` containing `{model}_{dataset}.pth` or the trainer's `{model}_ft_{dataset}_*.pth` files. A missing checkpoint is an error; `--allow-random-head` skips that check for pipeline smoke tests only (results are meaningless).
 
@@ -231,7 +233,7 @@ vit-explainability-benchmark/
 │
 ├── metrics/                    # Evaluation suite
 │   ├── fidelity.py             #   F1–F3 (Sufficiency, Comprehensiveness, Log-odds)
-│   ├── localization.py         #   L1–L4 (mIoU, PG, EGT, CalibGap)
+│   ├── localization.py         #   L1–L3 (mIoU, PG, EGT); L4 CLG in metrics/aggregate.py
 │   ├── robustness.py           #   R1–R3 (MaxSens, ModelRand, HeadPerm)
 │   ├── complexity.py           #   C1–C3 (Gini, Entropy, EMR)
 │   ├── axiom_verifier.py       #   Axiomatic analysis (A1–A4) + Theorems T1–T6

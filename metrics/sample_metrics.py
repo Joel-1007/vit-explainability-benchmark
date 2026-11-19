@@ -32,6 +32,8 @@ from typing import Any, Dict, Iterable, List, Optional, Sequence
 import torch
 
 from .adversarial_robustness import PGDRobustnessMetric
+from utils.tasks import class_score, is_correct, task_of
+
 from .complexity import ComplexityMetrics
 from .fidelity import MASK_MODES, FidelityMetrics
 from .localization import LocalizationMetrics
@@ -49,13 +51,14 @@ _COMPLEXITY_KEYS = ("gini", "entropy_norm", "emr_50", "emr_90", "emr_95", "k_sta
 
 # +1 = higher is better, -1 = lower is better. Matched by exact name, then prefix.
 METRIC_DIRECTIONS: Dict[str, int] = {
-    "miou": +1, "iou@": +1, "pointing_game": +1, "egt": +1, "calibration_gap": +1,
+    "miou": +1, "iou@": +1, "pointing_game": +1, "egt": +1,
     "gini": +1, "entropy_norm": -1, "emr_": -1, "k_star_90": -1,
     "sufficiency@": -1,          # f(x) - f(x_keep): small = kept patches suffice
     "comprehensiveness@": +1,    # f(x) - f(x_drop): large = dropped patches mattered
     "log_odds_drop@": +1,
     "max_sensitivity": -1, "model_randomisation": +1, "head_permutation": +1,
-    "pgd_robustness": +1,
+    "pgd_robustness": +1, "egt_lift": +1,
+    "correctness_localisation_gap": +1, "egt_score_spearman": +1,
 }
 
 
@@ -196,15 +199,42 @@ class BoundMetrics:
         att_norm: torch.Tensor,            # (B, Hp, Wp) normalised, cpu
     ) -> List[Dict[str, float]]:
         cfg, B = self.cfg, x.shape[0]
+        task = task_of(self.model)
         with torch.no_grad():
-            preds = self.model(x).argmax(dim=1)
+            logits = self.model(x)
+        thresholds = getattr(self.model, "decision_thresholds", None)
+        if task == "multi" and thresholds is None:
+            # Only for smoke tests with untrained heads: no validation thresholds.
+            thresholds = torch.full((logits.shape[1],), 0.5)
+            self.threshold_source = "default_0.5_UNVALIDATED"
+        else:
+            self.threshold_source = getattr(self.model, "threshold_source", "argmax")
+        preds = logits.argmax(dim=1)
+        scores = class_score(logits, y, task)
+        correct = is_correct(logits, y, task, thresholds)
+        # pred: top-scoring class; score: s_y (softmax or sigmoid); correct:
+        # argmax == y (single-label) or s_y >= t_y (multi-label, frozen t from validation)
         rows: List[Dict[str, float]] = [
-            {"pred": int(preds[i]), "correct": int(preds[i] == y[i])} for i in range(B)
+            {"pred": int(preds[i]), "score": float(scores[i]), "correct": int(correct[i])}
+            for i in range(B)
         ]
 
         if "localization" in cfg.families and gt_mask is not None:
             for i in range(B):
-                rows[i].update(self.loc.compute_all(att_norm[i], gt_mask[i].cpu()))
+                m = gt_mask[i].cpu()
+                loc = self.loc.compute_all(att_norm[i], m)
+                valid = m != 255
+                area = float(((m > 0) & valid).sum() / valid.sum().clamp(min=1))
+                if area == 0.0:
+                    # GT cropped out by the centre crop (or empty): localisation is
+                    # undefined for this unit — NaN, never a score of 0.
+                    loc = {k: math.nan for k in loc}
+                    loc["egt_lift"] = math.nan
+                else:
+                    # EGT lift over chance: an uninformative map has EGT = GT area fraction
+                    loc["egt_lift"] = loc["egt"] - area
+                loc["gt_area"] = area
+                rows[i].update(loc)
 
         if "complexity" in cfg.families:
             for i in range(B):

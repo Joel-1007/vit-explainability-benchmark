@@ -37,12 +37,12 @@ import pandas as pd
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from utils.eval_datasets import (  # noqa: E402
-    DATASET_CLASSES, IGNORE, NIH_CLASSES, NUM_CLASSES, VOC_CLASSES, spread_indices,
+    DATASET_CLASSES, IGNORE, NIH_CLASSES, NUM_CLASSES, VOC_CLASSES, PairTransform, spread_indices,
 )
 
 SPLIT_DESCRIPTION = {
     "cub200": "official test split (train_test_split.txt == 0)",
-    "pascal_voc": "VOC2012 segmentation val (ImageSets/Segmentation/val.txt); dominant-class label",
+    "pascal_voc": "VOC2012 segmentation val (ImageSets/Segmentation/val.txt); one unit per (image, class present)",
     "imagenet_s50": "ImageNet-S-50 validation split with pixel masks",
     "nih_chestxray": "BBox_List_2017.csv images, minus patients in train_val_list.txt",
 }
@@ -119,24 +119,31 @@ def audit_one(name: str, root: Path, mask_samples: int) -> Dict:
 
     # Annotation statistics on a class-spread subset
     idx = spread_indices(len(ds), mask_samples) if mask_samples else range(len(ds))
-    empty, area, ignore = 0, [], []
+    empty, cropped_out, area, ignore = 0, 0, [], []
     for i in idx:
         _, _, m = ds._load(i)
         valid = m != IGNORE
         fg = (m == 1) & valid
         if not fg.any():
             empty += 1
+        elif not (PairTransform().mask(m) == 1).any():
+            cropped_out += 1          # object lies entirely outside the 224 crop
         area.append(fg.sum() / max(valid.sum(), 1))
         ignore.append(1 - valid.mean())
     n_checked = len(area)
     rep.update({
         "masks_checked": n_checked,
         "empty_gt_fraction": empty / n_checked if n_checked else float("nan"),
+        "gt_cropped_out_fraction": cropped_out / n_checked if n_checked else float("nan"),
         "gt_area_fraction_mean": float(np.mean(area)) if area else float("nan"),
         "ignore_fraction_mean": float(np.mean(ignore)) if ignore else float("nan"),
     })
     if empty:
         rep["issues"].append(f"{empty}/{n_checked} checked samples have an empty GT mask")
+    if cropped_out:
+        rep["warnings"].append(
+            f"{cropped_out}/{n_checked} units have their GT entirely outside the 224 centre crop "
+            "(localisation metrics are NaN for them, not 0)")
     return rep
 
 

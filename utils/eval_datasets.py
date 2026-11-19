@@ -22,7 +22,8 @@ is wrong):
                  ``ImageFolder``, which ``scripts/pilot_finetune.py`` uses.
 * ImageNet-S50 : sorted WordNet-ID folder names under ``validation/``.
 * PASCAL VOC   : the 20 standard VOC classes (``VOC_CLASSES``); segmentation
-                 index c ∈ 1..20 → label c-1.
+                 index c ∈ 1..20 → label c-1. Multi-label: one evaluation unit
+                 per (image, class present).
 * NIH CXR-14   : the 14 standard findings (``NIH_CLASSES``).
 
 Expected layouts (under ``<data_root>``)::
@@ -171,10 +172,14 @@ class CUB200Eval(_MaskedDataset):
 
 class VOCEval(_MaskedDataset):
     """
-    VOC 2012 segmentation val. VOC images are multi-object, so each image is
-    assigned its *dominant* class (most labelled pixels); the mask marks that
-    class's pixels as 1, other objects and background as 0, and VOC's
-    object-boundary band (255) as ignore.
+    VOC 2012 segmentation ``val`` (1,449 images), multi-label formulation.
+
+    Evaluation unit = (image, class c present in the segmentation). The mask
+    marks class c's pixels as 1; other objects and background are 0 (an
+    explanation of c should not highlight them); VOC's object-boundary band
+    (255) is ignore. An image with k classes contributes k units, each
+    explained and scored for its own class with the sigmoid score s_c.
+    Images without any labelled object are recorded in ``self.skipped``.
     """
 
     def __init__(self, root: str | Path, split: str = "val",
@@ -184,16 +189,16 @@ class VOCEval(_MaskedDataset):
         ids = [l.strip() for l in
                (self.root / "ImageSets" / "Segmentation" / f"{split}.txt").read_text().splitlines()
                if l.strip()]
+        self.image_ids = ids
         self.samples = []
         self.skipped: List[str] = []
         for img_id in ids:
             seg = self._seg(img_id)
-            counts = np.bincount(seg[(seg > 0) & (seg != IGNORE)].ravel(), minlength=21)
-            if counts.sum() == 0:
+            present = np.unique(seg[(seg > 0) & (seg != IGNORE)])
+            if present.size == 0:
                 self.skipped.append(img_id)
                 continue
-            c = int(counts.argmax())
-            self.samples.append((img_id, c - 1))
+            self.samples.extend((img_id, int(c) - 1) for c in present)
 
     def _seg(self, img_id: str) -> np.ndarray:
         # Palette PNG: np.array yields class indices directly.

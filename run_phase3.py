@@ -81,6 +81,7 @@ from metrics.sample_metrics import ALL_FAMILIES, FAMILIES, SampleMetricComputer
 from metrics.fidelity import MASK_MODES
 from metrics.aggregate import aggregate
 from utils.eval_datasets import DATASET_CLASSES, NUM_CLASSES, build_eval_loader
+from utils.tasks import TASK_TYPE, set_task
 
 log = logging.getLogger("run_phase3")
 
@@ -197,6 +198,7 @@ def load_finetuned_model(
     would describe an untrained classifier: refused unless allow_random_head.
     """
     num_classes = NUM_CLASSES[dataset]
+    task = TASK_TYPE[dataset]
     model = load_model(model_name, num_classes=num_classes, pretrained=True)
     ckpt = find_weights(weights_dir, model_name, dataset, seed)
     if ckpt is None:
@@ -207,10 +209,23 @@ def load_finetuned_model(
             raise FileNotFoundError(msg + " (pass --allow-random-head for smoke tests only)")
         log.warning(f"  ⚠ {msg} — using a RANDOM {num_classes}-class head. "
                     "Results are NOT valid for reporting.")
-        return model
-    state = torch.load(ckpt, map_location="cpu", weights_only=True)
-    state = state.get("model_state_dict", state)
+        return set_task(model, task, None, "none (random head)")
+    ckpt_data = torch.load(ckpt, map_location="cpu", weights_only=True)
+    meta = ckpt_data.get("metadata", {}) if isinstance(ckpt_data, dict) else {}
+    state = ckpt_data.get("model_state_dict", ckpt_data)
     model.load_state_dict(state, strict=True)
+    if meta.get("task") not in (None, task):
+        raise ValueError(f"{ckpt.name}: trained as {meta.get('task')}-label, "
+                         f"but {dataset} is evaluated as {task}-label")
+    thresholds = meta.get("decision_thresholds")
+    if task == "multi" and thresholds is None:
+        msg = (f"{ckpt.name}: multi-label checkpoint without validation thresholds "
+               "(fine-tune with scripts/finetune.py)")
+        if not allow_random_head:
+            raise ValueError(msg)
+        log.warning(f"  ⚠ {msg} — correctness uses 0.5, NOT valid for reporting.")
+    set_task(model, task, thresholds,
+             "validation_f1 (frozen in checkpoint)" if thresholds is not None else "argmax")
     log.info(f"  ✓ {model_name}/{dataset}: loaded {ckpt.name}")
     return model
 

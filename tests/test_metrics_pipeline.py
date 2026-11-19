@@ -18,7 +18,7 @@ import torch
 import torch.nn as nn
 
 from metrics.aggregate import (
-    NON_METRIC_COLUMNS, aggregate, calibration_gap, load_per_sample, summarise,
+    NON_METRIC_COLUMNS, aggregate, correctness_localisation_gap, load_per_sample, summarise,
 )
 from metrics.robustness import permute_classifier_head, randomise_classifier_labels
 from metrics.sample_metrics import SampleMetricComputer, metric_direction
@@ -68,10 +68,11 @@ def test_head_permutation_finds_wrapped_heads(arch):
     assert torch.equal(w0[0].sort(dim=1).values, w1[0].sort(dim=1).values)  # permuted only
 
 
-def test_calibration_gap():
-    df = pd.DataFrame({"egt": [0.8, 0.6, 0.2, 0.4], "correct": [1, 1, 0, 0]})
-    assert calibration_gap(df) == pytest.approx(0.7 - 0.3)
-    assert math.isnan(calibration_gap(df[df.correct == 1]))
+def test_correctness_localisation_gap_basic():
+    df = pd.DataFrame({"label": 0, "egt_lift": [0.8, 0.6, 0.2, 0.4], "correct": [1, 1, 0, 0]})
+    clg, lo, hi, n = correctness_localisation_gap(df, min_n=2)
+    assert clg == pytest.approx(0.7 - 0.3) and n == 1 and lo <= clg <= hi
+    assert math.isnan(correctness_localisation_gap(df[df.correct == 1], min_n=2)[0])
 
 
 def test_aggregate_rejects_checkpoints_without_metrics(tmp_path):
@@ -89,7 +90,7 @@ def test_summarise_means_and_counts():
     })
     s = summarise(df).iloc[0]
     assert s.n_samples == 4 and s.accuracy == 0.5 and s.egt == pytest.approx(0.5)
-    assert s.calibration_gap == pytest.approx(0.4)
+    assert math.isnan(s.correctness_localisation_gap)    # 2 incorrect < min 10 per class
     assert s.n_max_sensitivity == 1 and s.max_sensitivity == 0.5
 
 
@@ -135,7 +136,7 @@ def test_phase3_writes_metrics_and_csvs(phase3_output):
     assert res["metric_config"]["robustness_subset"] == 1
 
     df = pd.read_csv(ckpt / "aggregated_results.csv")
-    assert len(df) == (3 + 2) * 3          # (3 CUB + 2 VOC samples) x 3 explainers
+    assert len(df) == (3 + 3) * 3          # (3 CUB + 3 VOC (image, class) units) x 3 explainers
     assert set(df.explainer) == {"gradcam", "rollout", "raw_attention"}
     for col in ["miou", "pointing_game", "egt", "gini", "entropy_norm", "emr_90",
                 "sufficiency@0.10", "comprehensiveness@0.50", "log_odds_drop@0.20",
@@ -152,7 +153,7 @@ def test_phase3_writes_metrics_and_csvs(phase3_output):
     assert df.head_permutation.dropna().between(0, 0.5).all()
 
     summ = pd.read_csv(ckpt / "combination_summary.csv")
-    assert len(summ) == 6 and "calibration_gap" in summ and "accuracy" in summ
+    assert len(summ) == 6 and "correctness_localisation_gap" in summ and "accuracy" in summ
     assert (summ.n_max_sensitivity == 1).all()
 
 

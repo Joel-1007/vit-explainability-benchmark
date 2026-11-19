@@ -85,10 +85,15 @@ from the HF Hub repo `timm/<timm ID>` and its SHA-256 is logged in `model_hashes
 > token layout (ViT/BEiT/MAE 1+14², DeiT 2+14², DINO 1+28², DINOv2 1+16², Swin 7×7×1024
 > map), and post-softmax attention capture (rows sum to 1; Swin unsupported as expected).
 >
-> **Classifier pooling differs.** ViT, DeiT (CLS + distillation heads, averaged), DINO,
-> DINOv2 and MAE classify from the CLS token; **BEiT's native head mean-pools the patch
-> tokens** and Swin mean-pools its final feature map. CLS-row attention explainers (E1, E2,
-> E4) therefore do not follow BEiT's decision pathway — see §1.1 pooling decision.
+> **Classifier pooling (protocol decision, 2026-11-19).** Every model with a CLS token
+> classifies from it: ViT, DINO, DINOv2, MAE, and **BEiT, whose native timm head mean-pools
+> the patch tokens** — fine-tuned here with a CLS-token head so that CLS-row attention
+> explainers (E1, E2, E4) follow its decision pathway. BEiT's trained final LayerNorm is
+> carried over (`fc_norm` → `norm`); the head is new in either case. This deviates from
+> BEiT's own fine-tuning recipe and is reported as such. DeiT keeps its native averaged
+> CLS + distillation heads (E1/E2/E4 read the CLS row; the distillation path is not
+> explained by them — documented limitation). Swin mean-pools (no CLS token).
+> `verify_model_zoo.py` checks the pooling of every model.
 MAE-ViT-B/16 is not part of the main matrix; it is the supervised-vs-MAE comparison of
 ablation A4 (same architecture as ViT-B/16, so pre-training is the only variable).
 
@@ -127,22 +132,28 @@ tuning is performed — the protocol is fixed once and applied uniformly.
 | **Epochs**                  | 50 (CUB-200-2011); 30 (VOC, NIH ChestX-ray14, ImageNet-S-50) | —             |
 | **Input size**              | 224 × 224, bicubic interpolation                | —                          |
 | **Augmentation**            | RandAugment M=9 N=2, random erasing p=0.25      | Cubuk et al. (2020)        |
-| **Mixup**                   | α=0.8; CutMix disabled                          | Zhang et al. (2018)        |
-| **Label smoothing**         | ε=0.1                                           | Szegedy et al. (2016)      |
+| **Mixup**                   | α=0.8; CutMix disabled. Single-label: timm Mixup. Multi-label: λ-mix of images and multi-hot targets, entry weight = product (ignored in either image → ignored) | Zhang et al. (2018) |
+| **Label smoothing**         | ε=0.1 single-label; none for multi-label        | Szegedy et al. (2016)      |
 | **Stochastic depth**        | drop_path_rate=0.1                              | Huang et al. (2016)        |
 | **Dropout**                 | 0.0 (disabled)                                  | —                          |
-| **Loss (CUB/VOC/ImageNet)** | SoftTargetCrossEntropy (Mixup-compatible)       | —                          |
-| **Loss (NIH ChestX-ray14)** | Binary CE, class-weighted (multi-label)         | —                          |
+| **Loss (CUB, ImageNet-S)**  | SoftTargetCrossEntropy (single-label, Mixup-compatible) | —                  |
+| **Loss (VOC, NIH)**         | Masked BCE with logits (multi-label); NIH pos_weight = N_neg/N_pos per class from the training split; VOC difficult-only classes have weight 0 | — |
+| **Classifier head**         | CLS token for every CLS-token model (BEiT included); mean pool for Swin | §1.1 |
+| **Model selection**         | Final epoch, every model (no early stopping)    | —                          |
+| **Decision thresholds**     | Multi-label only: per class, F1-optimal on the validation split after the final epoch; frozen in the checkpoint + `.thresholds.json` | `training/thresholds.py` |
 
 ### Implementation files
 
 | File                     | Responsibility                             |
 | ------------------------ | ------------------------------------------ |
 | `training/transforms.py` | RandAugment + random erasing pipeline      |
-| `training/mixup.py`      | Batch-level Mixup (α=0.8)                  |
+| `training/mixup.py`      | Batch-level Mixup (α=0.8), per task type   |
 | `training/optimizer.py`  | AdamW + LR warmup + cosine decay           |
-| `training/loss.py`       | SoftTargetCrossEntropy / BCE               |
-| `training/trainer.py`    | Full fine-tune loop with grad accumulation |
+| `training/loss.py`       | SoftTargetCrossEntropy / masked BCE        |
+| `training/thresholds.py` | Validation-only F1-optimal thresholds      |
+| `training/trainer.py`    | Fine-tune loop, final-epoch checkpoint, val AUROC/mAP (multi-label) |
+| `utils/train_datasets.py`| Training/validation splits, leakage checks |
+| `scripts/finetune.py`    | Fine-tune one (model, dataset, seed)       |
 
 ### Pilot sanity check (§7)
 
@@ -194,7 +205,7 @@ its transformed mask), and each perturbation baseline. On real data,
 | Dataset              | Task                                         | Classes | Fine-tune train | **Evaluation set (with GT)**                     | GT type used                    | Config                       |
 | -------------------- | -------------------------------------------- | ------- | --------------- | ------------------------------------------------ | ------------------------------- | ---------------------------- |
 | **CUB-200-2011**     | Fine-grained bird classification             | 200     | 5,994           | 5,794 (official test split)                      | Pixel segmentation masks        | `configs/cub200.yaml`        |
-| **PASCAL VOC 2012**  | Object classification (dominant class)       | 20      | 10,582 (SBD aug.) | 1,449 (segmentation `val`)                     | Pixel segmentation masks        | `configs/pascal_voc.yaml`    |
+| **PASCAL VOC 2012**  | **Multi-label** object classification         | 20      | 5,717 (`Main/train`) | 1,449 (segmentation `val`) → one unit per (image, class present) | Pixel segmentation masks | `configs/pascal_voc.yaml`    |
 | **ImageNet-S-50**    | 50-class subset of ImageNet-1K               | 50      | ImageNet-1K images of the 50 classes | 752 (`validation`, as checked by `verify_datasets.py`) | Pixel segmentation masks | `configs/imagenet_s50.yaml`  |
 | **NIH ChestX-ray14** | Multi-label chest pathology (14 findings)    | 14      | 86,524 (train/val list) | **984 boxes on ~880 images** (`BBox_List_2017.csv`) | Bounding boxes, 8 findings | `configs/nih_chestxray.yaml` |
 
@@ -218,8 +229,25 @@ evaluation split and population, expected vs present classes with per-class coun
 the imbalance ratio, and GT statistics (empty-mask fraction, GT area, ignore area);
 it exits non-zero on blocking issues. `run_benchmark.sh` runs it before Phase 3.
 
-> **VOC labels.** VOC images often contain several objects; each image is labelled with
-> its dominant class (most segmented pixels) and the GT mask covers that class only.
+### Task formulation and splits (Stage 3, 2026-11-19)
+
+| Dataset | Task | Score s_c | Fine-tune train | Validation (monitoring; thresholds) | Evaluation unit |
+| ------- | ---- | --------- | --------------- | ----------------------------------- | --------------- |
+| CUB-200 | single-label | softmax | official train minus 10% per-class hold-out | the hold-out | image (test split) |
+| ImageNet-S-50 | single-label | softmax | `train/` (ImageNet-1k images of the 50 classes) minus 10% hold-out | the hold-out | image (`validation/`) |
+| VOC 2012 | **multi-label** | sigmoid | `Main/train`, labels from XML; difficult-only classes ignored | `Main/val` minus segmentation `val` | (image, class present in the segmentation); mask = that class's pixels, other objects background, boundary ignored |
+| NIH CXR-14 | **multi-label** | sigmoid | `train_val_list`, 90% of patients (fixed split) | other 10% of patients | (box image, finding); patients in `train_val_list` excluded |
+
+All splits are built by `utils/train_datasets.py`, which raises if a training or validation
+image is an evaluation image; class orders are shared with `utils/eval_datasets.py`.
+Hold-out splits use a fixed seed (identical for every fine-tuning seed).
+The dominant-class shortcut previously used for VOC is removed.
+
+**Correctness.** Single-label: argmax = y. Multi-label: s_y ≥ t_y with the frozen
+validation thresholds — a detection operating point, not a calibration statement. Every
+multi-label evaluation unit is a positive pair, so "accuracy" in the summaries is recall at
+t (the `task_type` column says which). Validation quality is reported as top-1 (single) or
+macro AUROC and mAP (multi) in the checkpoint metadata.
 
 ### Dataset verification protocol
 
@@ -290,7 +318,7 @@ Thirteen metrics are implemented across four complementary families:
 | Family                  | Metrics                                           | Question answered                                          |
 | ----------------------- | ------------------------------------------------- | ---------------------------------------------------------- |
 | **Fidelity** (§2.1)     | F1 Sufficiency, F2 Comprehensiveness, F3 Log-odds | Does the attribution reflect what the model actually uses? |
-| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CalibGap               | Does the attribution point at the right region?            |
+| **Localization** (§2.2) | L1 mIoU, L2 PG, L3 EGT, L4 CLG                    | Does the attribution point at the right region?            |
 | **Robustness** (§2.3)   | R1 MaxSens, R2 ModelRand, R3 HeadPerm             | Is the attribution stable and model-sensitive?             |
 | **Complexity** (§2.4)   | C1 Gini, C2 Entropy, C3 EMR                       | Is the attribution concise?                                |
 
@@ -334,6 +362,14 @@ $$F3 = \text{LogOddsDrop}(\phi, f, x) = \log \frac{f(x)_{y^*}}{1 - f(x)_{y^*}} -
 
 where $x' = \tilde{x}_{\text{drop}}$. Measures the log-odds change of the explained class
 after removing the top-$k$ attributed patches. **Higher is better.**
+
+**Class score $f(\cdot)_y$ by task (`utils/tasks.py`).** Single-label datasets (CUB,
+ImageNet-S): softmax probability. Multi-label datasets (VOC, NIH): sigmoid probability of
+the explained class, so F1/F2 are changes in that class's independent detection score and
+F3 is exactly the logit difference $z_y(x) - z_y(\tilde{x}_{\text{drop}})$. RISE and LIME
+weight their samples by the same score; GradCAM, Chefer LRP and IG use the logit $z_y$
+under both formulations. Fidelity values are therefore comparable within a dataset;
+cross-dataset analyses use rankings (Kendall τ).
 
 **Masking baseline.** The default replaces removed patches with the per-channel image
 mean (`mask_mode="mean"`); zero (black) and Gaussian-blur baselines are compared in
@@ -449,17 +485,39 @@ area fraction $|M^{GT}|/|M|$, the value of an uninformative uniform map.
 
 ---
 
-### L4 — Calibration Gap (CalibGap)
+### L4 — Correctness-Conditional Localisation Gap (CLG)
 
-Let $\mathcal{C}$ and $\mathcal{I}$ be correctly and incorrectly classified samples:
+*(Formerly "Calibration Gap". It is not a calibration measure — it asks whether
+explanations localise better when the model is right — and was renamed and redefined
+after audit, 2026-11-19.)*
 
-$$L4 = \text{CalibGap} = \mathbb{E}_{i \in \mathcal{C}}\!\left[\text{EGT}_i\right] - \mathbb{E}_{i \in \mathcal{I}}\!\left[\text{EGT}_i\right]$$
+Per evaluation unit: $\text{EGTlift} = \text{EGT} - a$, where $a$ is the GT-area fraction (the
+EGT of an uninformative uniform map). For each class $c$ with at least 10 correct **and** 10
+incorrect units:
 
-**Range:** $(-1, 1)$. Positive = explanation aligns better with GT on correct predictions
-(necessary condition for faithfulness). Near-zero or negative = sanity-check failure.
+$$\Delta_c = \overline{\text{EGTlift}}_{\,c,\ \text{correct}} - \overline{\text{EGTlift}}_{\,c,\ \text{incorrect}}, \qquad L4 = \text{CLG} = \frac{1}{|\mathcal{K}|}\sum_{c \in \mathcal{K}} \Delta_c$$
 
-**Undefined** when all predictions correct ($\mathcal{I} = \emptyset$) or all incorrect
-($\mathcal{C} = \emptyset$) — raises `ValueError`.
+over the eligible classes $\mathcal{K}$, with a class-stratified 95% bootstrap CI. Correctness
+is argmax = y (single-label) or $s_y \ge t_y$ with frozen validation thresholds (multi-label).
+
+**Why each ingredient.**
+- *EGT lift.* Mistakes cluster on hard classes, often with small objects, whose raw EGT is
+  low by chance; the pooled raw-EGT gap therefore partly measures object size (a synthetic
+  test with identical lift but smaller objects among errors gives a raw gap of 0.4 and
+  CLG ≈ 0).
+- *Within-class, equally weighted.* Removes class-composition effects (e.g. NIH findings
+  with very different difficulty and box size).
+- *Eligibility (≥ 10 per side).* Small groups give unstable differences; ineligible classes
+  are excluded and `clg_n_classes` is reported; no eligible class → NaN.
+- *Threshold dependence (multi-label).* Only positive (image, class) units have masks, so
+  "incorrect" means "missed at $t_y$". A threshold-free companion is always reported:
+  `egt_score_spearman`, the mean within-class Spearman ρ(EGTlift, $s_y$).
+
+**Range:** $(-1, 1)$. Positive = explanations localise better on correct predictions.
+**Not** a probability-calibration metric (no ECE/reliability claim).
+
+Units whose GT lies entirely outside the 224 centre crop have undefined localisation
+(NaN, never 0) and do not enter L1–L4 (`gt_cropped_out_fraction` in the audit).
 
 ---
 
@@ -483,8 +541,10 @@ pg = lm.pointing_game(att_map, gt_mask)      # → 1.0 or 0.0
 # L3 — EGT
 e = lm.egt(att_map, gt_mask)                 # → float in [0, 1]
 
-# L4 — CalibGap (dataset-level, requires partitioned lists)
-gap = lm.calibration_gap(atts_correct, atts_incorrect, gt_masks=all_masks)
+# L4 — CLG is computed per combination in metrics/aggregate.py
+# (correctness_localisation_gap, egt_score_spearman) from per-sample EGT lift.
+# lm.calibration_gap() is the legacy pooled raw-EGT difference, kept for the
+# old BenchmarkRunner only — do not report it.
 
 # All three per-sample metrics in one call (L4 excluded)
 scores = lm.compute_all(att_map, gt_mask)
@@ -527,24 +587,24 @@ complementary: it penalises boundary-concentrated peaks.
 
 ---
 
-#### Proposition 2.2.C — CalibGap is gameable
+#### Proposition 2.2.C — CLG is gameable
 
-CalibGap is a difference of conditional means, not a scoring rule, so it carries no
+CLG is a difference of conditional means, not a scoring rule, so it carries no
 incentive-compatibility guarantee.
 
-**Claim.** CalibGap can be gamed by an adversarial explainer with access to the
+**Claim.** CLG can be gamed by an adversarial explainer with access to the
 prediction correctness flag.
 
 _Proof by construction._ If $\phi$ outputs high-EGT maps for correct predictions
-and low-EGT maps for incorrect ones, CalibGap → 1 without faithfulness. $\square$
+and low-EGT maps for incorrect ones, CLG → 1 without faithfulness. $\square$
 
 **Mitigation.** The benchmark:
 
 1. Passes only `(model, image)` to explainers — never correctness flags.
-2. Reports L1–L3 alongside L4 so inflated CalibGap is detectable.
-3. Requires consistent CalibGap across all four datasets.
+2. Reports L1–L3 alongside L4 so an inflated CLG is detectable.
+3. Requires consistent CLG across all four datasets.
 
-**Implication.** CalibGap is a _diagnostic_ metric, never a primary ranking criterion.
+**Implication.** CLG is a _diagnostic_ metric, never a primary ranking criterion.
 
 ---
 
@@ -828,7 +888,7 @@ uv run pytest tests/ -v
 | Metric       | Cost per sample        | Recommendation          |
 | ------------ | ---------------------- | ----------------------- |
 | L1–L3        | O(1) tensor ops        | Full dataset            |
-| L4 CalibGap  | O(N) at dataset end    | Full dataset            |
+| L4 CLG       | O(N) at aggregation    | Full dataset            |
 | R1 MaxSens   | K explainer calls      | Fixed subset (`--robustness-subset`, default 100) |
 | R2 ModelRand | 1 extra explainer call | Same subset as R1       |
 | R3 HeadPerm  | 1 extra explainer call | Same subset as R1       |
@@ -1062,7 +1122,7 @@ Symbol key: ✓ rewards compliance · ∼ partially sensitive · ✗ insensitive
 | L1 — mIoU              | ∼          | ✗ (T1)            | ✗             | ✗              |
 | L2 — Pointing Game     | ✗          | ✗ (T1)            | ✗             | ✗              |
 | L3 — EGT               | ✓ (T2)     | ✗ (T1)            | ✗             | ✗              |
-| L4 — Calibration Gap   | ✓          | ✗ (T1)            | ✗             | ✗              |
+| L4 — CLG               | ✓          | ✗ (T1)            | ✗             | ✗              |
 | R1 — Max-Sensitivity   | ✗          | ✗ (T1)            | ∼             | ✗              |
 | R2 — Model Rand.       | ⊗          | ✗ (T1)            | ✗             | ✗              |
 | R3 — Head Perm.        | ⊗          | ✗ (T1)            | ✗             | ✗              |
@@ -1753,7 +1813,7 @@ vit-explainability-benchmark/
 | L1  | mIoU              | $\text{mean}_\tau \text{IoU}(\hat{M}_\tau, M^{GT})$                   | $[0,1]$      | `localization.py`  | Higher    |
 | L2  | Pointing Game     | $\mathbf{1}[p^* \in M^{GT}]$                                          | $\{0,1\}$    | `localization.py`  | Higher    |
 | L3  | EGT               | $\sum_{p \in M^{GT}} e^+_p / \sum_p e^+_p$                            | $[0,1]$      | `localization.py`  | Higher    |
-| L4  | CalibGap          | $\mathbb{E}[\text{EGT}\mid\text{correct}] - \mathbb{E}[\text{EGT}\mid\text{wrong}]$ | $(-1,1)$ | `aggregate.py` | Higher |
+| L4  | CLG               | class-mean of $\Delta_c$ = EGTlift(correct) − EGTlift(incorrect) | $(-1,1)$ | `aggregate.py` | Higher |
 | R1  | MaxSens           | $\max_k \lVert\phi(x+\delta_k)-\phi(x)\rVert_2 / \lVert\phi(x)\rVert_2$ | $[0,\infty)$ | `robustness.py`  | **Lower** |
 | R2  | ModelRand         | $1 - \text{SSIM}(\phi_\text{orig}, \phi_\text{rand})$                 | $[0,1]$      | `robustness.py`    | Higher    |
 | R3  | HeadPerm          | $1 - (\lvert\rho(\phi_\text{orig}, \phi_\text{perm})\rvert + 1)/2$    | $[0,0.5]$    | `robustness.py`    | Higher    |
@@ -1803,7 +1863,7 @@ higher is better; `--metrics adversarial`) and fidelity columns suffixed `[zero]
 ☑ L1 formal definition: mIoU at τ ∈ {0.25, 0.50, 0.75}
 ☑ L2 formal definition: PG = 1[argmax_p e_p ∈ M_GT], tie-breaking seeded
 ☑ L3 formal definition: EGT = Σ_{p∈M_GT} e⁺_p / Σ_p e⁺_p (positive-mass fraction)
-☑ L4 formal definition: CalibGap = E[EGT|correct] − E[EGT|incorrect]
+☑ L4 formal definition: CLG = class-mean of [EGTlift|correct − EGTlift|incorrect] (renamed from CalibGap)
 ☑ LocalizationMetrics class — metrics/localization.py
 ☑ 12 unit tests — tests/test_localization.py — 12/12 passing
 ☑ BenchmarkRunner — metrics/runner.py

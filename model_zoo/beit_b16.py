@@ -20,6 +20,14 @@ purely self-supervised model. The clean MIM-vs-supervised comparison is ablation
 A4 (MAE-B/16 vs ViT-B/16, same architecture). The 21,841-class IN-22k head is
 discarded; our fine-tuning attaches a new head.
 
+Classifier pooling (benchmark protocol)
+---------------------------------------
+timm's native BEiT head mean-pools the patch tokens. Here BEiT classifies from
+the CLS token like ViT, DINO, DINOv2 and MAE, so CLS-row attention explainers
+(E1, E2, E4) follow the model's decision pathway. The trained final LayerNorm
+is carried over (fc_norm → norm); the head is new in either case. This is a
+deviation from BEiT's own fine-tuning recipe, reported in the paper.
+
 Explainability note
 -------------------
 CLS-token architecture (1 prefix token, 14×14 patch grid); attention includes
@@ -43,6 +51,24 @@ PATCH_SIZE = 16
 N_PATCHES  = (224 // PATCH_SIZE) ** 2   # 196
 
 
+def _token_pool_state_dict(num_classes: int) -> dict:
+    """
+    Pre-trained weights for a CLS-token-pooled BEiT.
+
+    timm's native BEiT head mean-pools patch tokens and applies ``fc_norm``;
+    with ``global_pool="token"`` the final LayerNorm is ``norm`` instead and
+    timm would drop the trained ``fc_norm`` and leave ``norm`` at its default
+    initialisation. We carry the trained LayerNorm parameters over
+    (``fc_norm.*`` → ``norm.*``) so only the pooled token changes. The
+    classification head is newly initialised by fine-tuning in either case.
+    """
+    native = timm.create_model(TIMM_ID, pretrained=True, num_classes=num_classes)
+    sd = native.state_dict()
+    for p in ("weight", "bias"):
+        sd[f"norm.{p}"] = sd.pop(f"fc_norm.{p}")
+    return sd
+
+
 class BEiTB16(nn.Module):
     """
     Wrapper for BEiT-B/16 (timm ``beit_base_patch16_224.in22k_ft_in22k``).
@@ -60,17 +86,19 @@ class BEiTB16(nn.Module):
         super().__init__()
         # Pre-training normalisation, applied inside the model (pixel-space protocol)
         self.normalize = PixelNormalize(MODEL_SPECS["beit_b16"].mean, MODEL_SPECS["beit_b16"].std)
+        # Classify from the CLS token (benchmark protocol: every CLS-token model
+        # decides through its CLS token, the token CLS-row explainers explain).
         self.backbone = timm.create_model(
-            TIMM_ID,
-            pretrained=pretrained,
-            num_classes=num_classes,
+            TIMM_ID, pretrained=False, num_classes=num_classes, global_pool="token",
         )
+        if pretrained:
+            self.backbone.load_state_dict(_token_pool_state_dict(num_classes), strict=True)
         self.num_classes = num_classes
         self.patch_size  = PATCH_SIZE
         self.embed_dim   = self.backbone.embed_dim   # 768
 
     # ------------------------------------------------------------------
-    def reset_classifier(self, num_classes: int) -> None:
+    def reset_classifier(self, num_classes: int) -> None:  # keeps CLS-token pooling
         self.backbone.reset_classifier(num_classes)
         self.num_classes = num_classes
 

@@ -7,7 +7,8 @@ Per model (from model_zoo/specs.py):
   • weights   : the cached weight file's SHA-256 equals the hash published on
                 the HF Hub (and recorded in model_hashes.txt); load is strict
   • config    : timm pretrained_cfg (mean/std, interpolation, crop) recorded
-  • pooling   : how the classifier reads the representation (CLS token / mean)
+  • pooling   : CLS-token head for every CLS-token model (BEiT included, see
+                model_zoo/beit_b16.py); mean pooling for Swin (no CLS token)
   • tokens    : forward_features shape == prefix tokens + patch grid² (ViT-style)
                 or (h, w, C) feature map (Swin); num_prefix_tokens matches spec
   • attention : post-softmax weights captured through the explainer hook for
@@ -97,6 +98,10 @@ def verify(name: str, seed: int = 0) -> dict:
         "interpolation": cfg.get("interpolation"), "crop_pct": cfg.get("crop_pct"),
         "pooling": _pooling(bb),
     })
+
+    expected_pool = "avg" if spec.prefix_tokens == 0 else "token"
+    ok("pooling", rep["info"]["pooling"] == expected_pool,
+       f"{rep['info']['pooling']} (protocol: classify from the CLS token when there is one)")
 
     try:
         w = _cached_weight_check(spec)

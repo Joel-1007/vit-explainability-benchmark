@@ -57,96 +57,23 @@ log = logging.getLogger("pilot")
 
 def _build_cub200_loaders(data_root: str, batch_size: int, num_workers: int = 4):
     """
-    Build CUB-200-2011 train/val DataLoaders.
-
-    Expected directory layout (standard CUB-200-2011 download):
-      <data_root>/
-        images/
-          001.Black_footed_Albatross/
-          002.Laysan_Albatross/
-          ...
-        train_test_split.txt
-        images.txt
-        image_class_labels.txt
-
-    Falls back to torchvision.datasets.ImageFolder if the split files
-    are absent (useful for quick smoke tests with a flat folder layout).
+    CUB-200-2011 loaders from utils/train_datasets: official train split minus
+    a 10% per-class hold-out (monitoring). The test split is the EVALUATION set
+    and is never used here.
     """
-    from torchvision.datasets import ImageFolder
-    from torch.utils.data import DataLoader, Subset
-    import os
+    from torch.utils.data import DataLoader
+    from utils.train_datasets import _ImageListDataset, cub200_items
 
     train_tf, val_tf = build_transforms(input_size=224)
-    root = Path(data_root)
-
-    # --- Try standard CUB split files first ---------------------------------
-    split_file  = root / "train_test_split.txt"
-    images_file = root / "images.txt"
-
-    if split_file.exists() and images_file.exists():
-        # Parse official train/test split
-        with open(images_file) as f:
-            idx_to_path = {
-                int(line.split()[0]): line.split()[1]
-                for line in f
-            }
-        with open(split_file) as f:
-            train_ids = {int(line.split()[0]) for line in f if line.split()[1] == "1"}
-
-        dataset_train = ImageFolder(str(root / "images"), transform=train_tf)
-        dataset_val   = ImageFolder(str(root / "images"), transform=val_tf)
-
-        # Map filename→dataset index using the folder's samples list
-        path_to_ds_idx = {
-            Path(s[0]).relative_to(root / "images").as_posix(): i
-            for i, s in enumerate(dataset_train.samples)
-        }
-        train_indices = []
-        val_indices   = []
-        for img_id, rel_path in idx_to_path.items():
-            ds_idx = path_to_ds_idx.get(rel_path)
-            if ds_idx is None:
-                continue
-            if img_id in train_ids:
-                train_indices.append(ds_idx)
-            else:
-                val_indices.append(ds_idx)
-
-        train_set = Subset(dataset_train, train_indices)
-        val_set   = Subset(dataset_val,   val_indices)
-
-    else:
-        # Fallback: assume <data_root>/train/ and <data_root>/val/ layout
-        log.warning(
-            "CUB split files not found — falling back to "
-            "<data_root>/train and <data_root>/val folder layout."
-        )
-        train_set = ImageFolder(str(root / "train"), transform=train_tf)
-        val_set   = ImageFolder(str(root / "val"),   transform=val_tf)
-
-    num_classes = 200
-
-    train_loader = DataLoader(
-        train_set,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=num_workers,
-        pin_memory=True,
-        drop_last=True,
-    )
-    val_loader = DataLoader(
-        val_set,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=num_workers,
-        pin_memory=True,
-    )
-
-    log.info(
-        f"CUB-200-2011 | train={len(train_set)}  val={len(val_set)}  "
-        f"classes={num_classes}"
-    )
-    return train_loader, val_loader, num_classes
+    train_items, val_items = cub200_items(Path(data_root))          # data_root = CUB folder
+    train_set = _ImageListDataset(train_items, train_tf, "single")
+    val_set = _ImageListDataset(val_items, val_tf, "single")
+    train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True,
+                              num_workers=num_workers, pin_memory=True, drop_last=True)
+    val_loader = DataLoader(val_set, batch_size=batch_size, shuffle=False,
+                            num_workers=num_workers, pin_memory=True)
+    log.info(f"CUB-200-2011 | train={len(train_set)}  hold-out val={len(val_set)}  classes=200")
+    return train_loader, val_loader, 200
 
 
 # ---------------------------------------------------------------------------
@@ -234,7 +161,7 @@ def main(args: argparse.Namespace) -> None:
     log.info("=" * 60)
 
     losses = history["train_loss"]
-    top1s  = history["val_top1"]
+    top1s  = [m["top1"] for m in history["val_metrics"]]
 
     check(
         all(losses[i] >= losses[i + 1] for i in range(len(losses) - 1)),

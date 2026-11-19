@@ -7,8 +7,7 @@ Reads every ``<dataset>-<model>-<explainer>.pkl`` in a checkpoint directory
 * ``aggregated_results.csv`` — one row per sample:
   dataset, model, explainer, sample_id, label, pred, correct, <metric columns>
 * ``combination_summary.csv`` — one row per combination: n_samples, accuracy,
-  the mean of every metric, and L4 ``calibration_gap``
-  = mean EGT (correct predictions) − mean EGT (incorrect predictions);
+  the mean of every metric, and L4 (see ``correctness_localisation_gap``);
   95% bootstrap CIs and class-balanced (macro) means of the primary metrics.
 * ``class_summary.csv`` — per class: n, accuracy and primary-metric means
   (class imbalance is reported, not hidden in a pooled mean).
@@ -17,6 +16,10 @@ Reads every ``<dataset>-<model>-<explainer>.pkl`` in a checkpoint directory
   combinations never appear as scores.
 * ``seed_summary.csv`` — when several fine-tuning seeds were evaluated:
   mean and std *across seeds* of each combination's primary-metric means.
+
+``accuracy`` is the mean of ``correct``: top-1 accuracy for single-label tasks;
+for multi-label tasks every evaluation unit is a positive (image, class) pair, so
+it is recall at the frozen validation thresholds (``task_type`` column says which).
 
 Seeds: checkpoint model names "vit_b16@seed1" become model="vit_b16", seed=1;
 unseeded runs have an empty seed.
@@ -41,7 +44,8 @@ ID_COLUMNS = ["dataset", "model", "seed", "explainer", "sample_id"]
 COMBO_KEYS = ["dataset", "model", "seed", "explainer"]
 SEED_TAG = "@seed"
 # Per-sample columns that are bookkeeping, not quality metrics.
-NON_METRIC_COLUMNS = ID_COLUMNS + ["label", "pred", "correct"]
+NON_METRIC_COLUMNS = ID_COLUMNS + ["label", "pred", "correct", "score", "gt_area", "task_type"]
+L4_MIN_PER_GROUP = 10        # min correct AND incorrect samples per class for L4
 
 
 # Rows/columns that exist only for Phase 4 ablations; the main analyses
@@ -106,6 +110,7 @@ def load_per_sample(checkpoint_dir: str | Path) -> pd.DataFrame:
         if None in ids.values():
             ids = dict(zip(("dataset", "model", "explainer"), res["key"].split("-", 2)))
         ids["model"], ids["seed"] = split_seed(ids["model"])
+        ids["task_type"] = res.get("task_type", "single")
         for i, (label, m) in enumerate(zip(res["labels"], res["metrics"])):
             rows.append({**ids, "sample_id": i, "label": label, **m})
     df = pd.DataFrame(rows)
@@ -121,14 +126,70 @@ def split_seed(model: str):
     return model, None
 
 
-def calibration_gap(group: pd.DataFrame) -> float:
-    """L4: mean EGT on correct minus incorrect predictions (NaN if either is empty)."""
-    if "egt" not in group:
+def _class_arrays(group: pd.DataFrame, value: str, min_n: int):
+    """Per eligible class: (values | correct, values | incorrect)."""
+    out = []
+    for _, g in group.groupby("label"):
+        g = g.dropna(subset=[value])
+        ok = g.loc[g["correct"] == 1, value].to_numpy(float)
+        bad = g.loc[g["correct"] == 0, value].to_numpy(float)
+        if len(ok) >= min_n and len(bad) >= min_n:
+            out.append((ok, bad))
+    return out
+
+
+def correctness_localisation_gap(group: pd.DataFrame, min_n: int = L4_MIN_PER_GROUP,
+                                 value: str = "egt_lift", n_boot: int = 1000, seed: int = 0):
+    """
+    L4 — Correctness-Conditional Localisation Gap (CLG).
+
+        CLG = mean over eligible classes c of
+              [ mean(EGTlift | correct, c) − mean(EGTlift | incorrect, c) ]
+
+    • EGTlift = EGT − GT-area fraction removes the chance level of EGT, which
+      otherwise rewards large objects (mistakes cluster on hard classes,
+      often with small objects).
+    • Within-class differences, equally weighted, remove class composition
+      effects; a class is eligible with ≥ ``min_n`` correct AND incorrect units.
+    • "correct": argmax = y (single-label) or s_y ≥ t_y (multi-label, frozen
+      validation thresholds — detection operating points, not calibration).
+    • This is NOT a calibration measure; it asks whether explanations
+      localise better when the model is right.
+
+    Returns (clg, ci_low, ci_high, n_eligible_classes); NaNs when no class is
+    eligible. The CI is a class-stratified percentile bootstrap.
+    """
+    if value not in group or "label" not in group:
+        return math.nan, math.nan, math.nan, 0
+    arrays = _class_arrays(group, value, min_n)
+    if not arrays:
+        return math.nan, math.nan, math.nan, 0
+    clg = float(np.mean([ok.mean() - bad.mean() for ok, bad in arrays]))
+    rng = np.random.default_rng(seed)
+    boots = np.zeros(n_boot)
+    for ok, bad in arrays:
+        boots += (ok[rng.integers(0, len(ok), (n_boot, len(ok)))].mean(1)
+                  - bad[rng.integers(0, len(bad), (n_boot, len(bad)))].mean(1))
+    boots /= len(arrays)
+    return clg, float(np.quantile(boots, 0.025)), float(np.quantile(boots, 0.975)), len(arrays)
+
+
+def egt_score_spearman(group: pd.DataFrame, min_n: int = L4_MIN_PER_GROUP,
+                       value: str = "egt_lift") -> float:
+    """
+    Threshold-free L4 companion: mean over classes (≥ ``min_n`` units, both
+    variables non-constant) of Spearman ρ(EGTlift, s_y), where s_y is the
+    model's score for the explained class (softmax or sigmoid).
+    """
+    import scipy.stats as ss
+
+    if value not in group or "score" not in group:
         return math.nan
-    ok, bad = group.loc[group["correct"] == 1, "egt"], group.loc[group["correct"] == 0, "egt"]
-    if ok.dropna().empty or bad.dropna().empty:
-        return math.nan
-    return float(ok.mean() - bad.mean())
+    rhos = []
+    for _, g in group.dropna(subset=[value, "score"]).groupby("label"):
+        if len(g) >= min_n and g[value].nunique() > 1 and g["score"].nunique() > 1:
+            rhos.append(ss.spearmanr(g[value], g["score"]).statistic)
+    return float(np.mean(rhos)) if rhos else math.nan
 
 
 def bootstrap_ci(values, n_boot: int = 1000, level: float = 0.95, seed: int = 0):
@@ -146,7 +207,8 @@ def bootstrap_ci(values, n_boot: int = 1000, level: float = 0.95, seed: int = 0)
     return float(np.quantile(means, a)), float(np.quantile(means, 1 - a))
 
 
-def summarise(per_sample: pd.DataFrame, n_boot: int = 1000) -> pd.DataFrame:
+def summarise(per_sample: pd.DataFrame, n_boot: int = 1000,
+              l4_min_n: int = L4_MIN_PER_GROUP) -> pd.DataFrame:
     """
     One row per (dataset, model, explainer): metric means, L4, and 95%
     percentile-bootstrap CIs (``<metric>_ci_low/_ci_high``) for the primary
@@ -159,7 +221,15 @@ def summarise(per_sample: pd.DataFrame, n_boot: int = 1000) -> pd.DataFrame:
     summary = g[cols].mean()
     summary.insert(0, "accuracy", g["correct"].mean())
     summary.insert(0, "n_samples", g.size())
-    summary["calibration_gap"] = g.apply(calibration_gap, include_groups=False)
+    l4 = g.apply(lambda grp: correctness_localisation_gap(grp, min_n=l4_min_n), include_groups=False)
+    summary["correctness_localisation_gap"] = l4.map(lambda t: t[0])
+    summary["correctness_localisation_gap_ci_low"] = l4.map(lambda t: t[1])
+    summary["correctness_localisation_gap_ci_high"] = l4.map(lambda t: t[2])
+    summary["clg_n_classes"] = l4.map(lambda t: t[3])
+    summary["egt_score_spearman"] = g.apply(lambda grp: egt_score_spearman(grp, min_n=l4_min_n),
+                                            include_groups=False)
+    if "task_type" in per_sample:
+        summary.insert(0, "task_type", g["task_type"].first())
     primary = primary_metric_columns(per_sample)
     for c in primary:
         cis = g[c].apply(lambda v: bootstrap_ci(v, n_boot=n_boot))

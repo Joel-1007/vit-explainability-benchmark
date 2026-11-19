@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from typing import Callable
 
 from utils.pgd import pgd_attack
+from utils.tasks import task_of
 
 
 class PGDRobustnessMetric:
@@ -70,11 +71,13 @@ class PGDRobustnessMetric:
         model.eval()
 
         # Determine target class for attack
-        with torch.no_grad():
-            logits = model(x.unsqueeze(0))
-            pred_class = logits.argmax(dim=-1).item()
-        
-        attack_target = target_class if target_class is not None else pred_class
+        task = task_of(model)
+        if target_class is None:
+            if task == "multi":
+                raise ValueError("multi-label PGD needs an explicit target_class")
+            with torch.no_grad():
+                target_class = model(x.unsqueeze(0)).argmax(dim=-1).item()
+        attack_target = target_class
 
         # Generate adversarial example
         x_adv = pgd_attack(
@@ -87,6 +90,7 @@ class PGDRobustnessMetric:
             random_start=self.random_start,
             mean=self.mean,
             std=self.std,
+            task=task,
         )
 
         # Generate explanations

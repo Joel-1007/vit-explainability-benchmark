@@ -624,6 +624,11 @@ class Phase3Runner:
         if bound is not None:
             results["metrics"] = metrics_list
             results["metric_config"] = self.metric_computer.config()
+            m = explainer.model
+            results["task_type"] = getattr(m, "task_type", "single")
+            results["threshold_source"] = getattr(bound, "threshold_source", "argmax")
+            t = getattr(m, "decision_thresholds", None)
+            results["decision_thresholds"] = None if t is None else [float(v) for v in t]
 
         # Atomic write: write to tmp then rename
         tmp_path = ckpt_path.with_suffix(".pkl.tmp")

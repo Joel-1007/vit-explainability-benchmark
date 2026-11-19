@@ -233,13 +233,13 @@ def test_audit_reports_population_labels_and_annotations(tmp_path):
     assert r.returncode == 1 and "classes have no evaluation sample" in r.stdout
     rep = {d["dataset"]: d for d in json.loads((tmp_path / "a" / "dataset_audit.json").read_text())}
     assert rep["cub200"]["n_samples"] == 3 and rep["cub200"]["n_classes_present"] == 3
-    assert rep["pascal_voc"]["n_samples"] == 2
+    assert rep["pascal_voc"]["n_samples"] == 3            # (image, class) units
     assert any("without any labelled object" in w for w in rep["pascal_voc"]["warnings"])
     assert rep["nih_chestxray"]["patient_leakage"]["excluded_samples"] == 1
     assert rep["imagenet_s50"]["empty_gt_fraction"] == 0.0
     assert 0 < rep["imagenet_s50"]["ignore_fraction_mean"] < 0.1
     counts = pd.read_csv(tmp_path / "a" / "dataset_class_counts.csv")
-    assert set(counts[counts.dataset == "pascal_voc"]["class"]) == {"person", "aeroplane"}
+    assert set(counts[counts.dataset == "pascal_voc"]["class"]) == {"person", "aeroplane", "dog"}
 
 
 def test_audit_passes_on_complete_dataset_and_flags_empty_masks(tmp_path):

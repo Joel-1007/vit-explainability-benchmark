@@ -24,7 +24,8 @@ Algorithm
 3. For each z: reconstruct image by replacing absent patches with the image's
    per-channel mean colour (computed in [0, 1] pixel space, so the fill is the
    same for every model).
-4. Batch all N reconstructed images through the model → class probability.
+4. Batch all N reconstructed images through the model → class score
+   (softmax for single-label, sigmoid for multi-label; utils/tasks.py).
 5. Fit weighted ridge regression:
       w = argmin_w Σ_i π(z_i) · (f(z_i) - w^T z_i)²  +  λ‖w‖²
    where π(z) = exp(-d(z, 1)² / 2σ²) and d = cosine distance to original.
@@ -41,6 +42,8 @@ is recommended for stable regression coefficients.
 """
 
 from __future__ import annotations
+
+from utils.tasks import class_score, task_of
 
 import math
 
@@ -160,7 +163,7 @@ class LIMEExplainer(BaseExplainer):
             for i in range(self.n_samples):
                 recon  = self._reconstruct(x, Z[i], mean_c, P, ps)
                 logit  = self.model(recon.unsqueeze(0))
-                y_vals[i] = torch.softmax(logit, dim=-1)[0, target_class]
+                y_vals[i] = class_score(logit, target_class, task_of(self.model))[0]
 
         # LIME kernel: cosine similarity to original (all-1 vector)
         Z_d   = Z.to(device)

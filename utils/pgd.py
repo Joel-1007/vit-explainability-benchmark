@@ -10,6 +10,8 @@ from typing import Optional, Sequence
 
 import torch
 
+from utils.tasks import pgd_loss
+
 
 def pgd_attack(
     model: torch.nn.Module,
@@ -21,6 +23,7 @@ def pgd_attack(
     random_start: bool = True,
     mean: Optional[Sequence[float]] = None,
     std: Optional[Sequence[float]] = None,
+    task: str = "single",
 ) -> torch.Tensor:
     """Untargeted L∞ PGD on a single image: maximise the loss of ``target``.
 
@@ -30,11 +33,13 @@ def pgd_attack(
         Model to attack (in eval mode).
     x: torch.Tensor
         Input image (C, H, W). In [0, 1] pixel space when ``mean``/``std``
-        are None; otherwise already normalised as ``(pixel - mean) / std``,
-        which is what the benchmark's data loaders produce.
+        are None — the benchmark protocol (models normalise internally);
+        otherwise already normalised as ``(pixel - mean) / std``.
     target: int
-        Class whose cross-entropy loss is maximised (usually the true label),
-        i.e. the attack pushes the prediction *away* from it.
+        Class whose loss is maximised (usually the true label), i.e. the
+        attack pushes the prediction *away* from it: cross-entropy for
+        single-label models, binary cross-entropy against "present" for
+        multi-label models (utils/tasks.pgd_loss).
     epsilon, alpha: float
         L∞ radius and step size, always in [0, 1] pixel units (0.03 ≈ 8/255).
     steps: int
@@ -69,12 +74,10 @@ def pgd_attack(
         x_adv = x_adv + (torch.rand_like(x_adv) * 2 - 1) * epsilon
         x_adv = torch.clamp(x_adv, 0.0, 1.0)
 
-    loss_fn = torch.nn.CrossEntropyLoss()
-    target_t = torch.tensor([target], device=x.device)
     for _ in range(steps):
         x_adv = x_adv.detach().requires_grad_(True)
         with torch.enable_grad():
-            loss = loss_fn(model(to_model(x_adv).unsqueeze(0)), target_t)
+            loss = pgd_loss(model(to_model(x_adv).unsqueeze(0)), target, task)
             grad, = torch.autograd.grad(loss, x_adv)
         x_adv = x_adv + alpha * grad.sign()
         x_adv = torch.max(torch.min(x_adv, x_pix + epsilon), x_pix - epsilon)

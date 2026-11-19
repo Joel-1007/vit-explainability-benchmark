@@ -128,17 +128,19 @@ def test_cub_uses_test_split_and_folder_order(data_root):
     assert m[0, 0] == 0                                   # weak (51) agreement → background
 
 
-def test_voc_dominant_class_mask_and_ignore(data_root):
+def test_voc_one_unit_per_present_class(data_root):
+    """Multi-label units: image 1 has dog (seg 12) and person (seg 15) → two units."""
     ds = VOCEval(data_root / "voc2012")
     assert ds.skipped == ["2007_000003"]                  # no foreground → skipped
-    assert [y for _, y in ds.samples] == [14, 0]          # seg idx 15 → "person"(14)
-    assert VOC_CLASSES[14] == "person"
-    _, _, m = _check_sample(ds, 0)
-    assert (m == 1).any() and (m == IGNORE).any()
-    # the smaller class-12 object must not be marked as target
+    assert ds.samples == [("2007_000001", 11), ("2007_000001", 14), ("2007_000002", 0)]
+    assert VOC_CLASSES[11] == "dog" and VOC_CLASSES[14] == "person"
     seg = ds._seg("2007_000001")
-    raw = ds._load(0)[2]
-    assert raw[seg == 12].max() == 0
+    dog, person = ds._load(0)[2], ds._load(1)[2]
+    # each unit's mask is exactly its own class; the other object is background
+    assert (dog[seg == 12] == 1).all() and dog[seg == 15].max() == 0
+    assert (person[seg == 15] == 1).all() and person[seg == 12].max() == 0
+    assert (person == IGNORE).any()                       # boundary band kept as ignore
+    _check_sample(ds, 1)
 
 
 @pytest.mark.parametrize("beside", [True, False])
@@ -212,7 +214,9 @@ def test_run_phase3_end_to_end(data_root, tmp_path, monkeypatch):
     weights.mkdir()
     for ds, n in [("cub200", 200), ("pascal_voc", 20)]:
         m = run_phase3.load_model("vit_b16", num_classes=n)
-        torch.save({"model_state_dict": m.state_dict(), "metadata": {}},
+        meta = ({"task": "multi", "decision_thresholds": [0.5] * n} if ds == "pascal_voc"
+                else {"task": "single"})
+        torch.save({"model_state_dict": m.state_dict(), "metadata": meta},
                    weights / f"vit_b16_ft_{ds}_20260101_ep001.pth")
 
     ckpt = tmp_path / "ckpt"
@@ -228,7 +232,8 @@ def test_run_phase3_end_to_end(data_root, tmp_path, monkeypatch):
         "pascal_voc-vit_b16-gradcam.pkl", "pascal_voc-vit_b16-rollout.pkl",
     ]
     res = pickle.loads((ckpt / "pascal_voc-vit_b16-gradcam.pkl").read_bytes())
-    assert res["n_samples"] == 2 and res["labels"] == [14, 0]
+    assert res["n_samples"] == 3 and res["labels"] == [11, 14, 0]
+    assert res["task_type"] == "multi" and res["threshold_source"].startswith("validation")
     assert all(a.shape == (14, 14) for a in res["attributions"])
     assert all(m is not None and m.shape == (224, 224) for m in res["gt_masks"])
 

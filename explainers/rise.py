@@ -15,7 +15,8 @@ resolution, then upsample smoothly to image resolution.
 
   saliency = Σ_k f_c(x ⊙ m_k) · m_k  /  (M · p)
 
-where f_c is the softmax probability of target class c and p = mask_prob.
+where f_c is the class score of target class c — softmax probability for
+single-label, sigmoid for multi-label tasks (utils/tasks.py) — and p = mask_prob.
 
 Input space: ``x`` is a [0, 1] pixel image (the model normalises internally),
 so x ⊙ m_k sets masked regions to **black**, as in the original RISE paper —
@@ -38,6 +39,8 @@ RISE is a black-box method: ``torch.no_grad()`` is used throughout.
 """
 
 from __future__ import annotations
+
+from utils.tasks import class_score, task_of
 
 import torch
 import torch.nn.functional as F
@@ -150,7 +153,7 @@ class RISEExplainer(BaseExplainer):
                 chunk   = masks[start : start + self.chunk_size]   # (C, 1, H, W)
                 masked  = x.unsqueeze(0) * chunk                   # (C, 3, H, W)
                 logits  = self.model(masked)                        # (C, num_classes)
-                probs   = torch.softmax(logits, dim=-1)[:, target_class]  # (C,)
+                probs   = class_score(logits, target_class, task_of(self.model))  # (C,)
                 # Weighted sum of masks by probability
                 saliency += (probs.view(-1, 1, 1) * chunk.squeeze(1)).sum(dim=0)
 
