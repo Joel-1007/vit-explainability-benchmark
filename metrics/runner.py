@@ -61,6 +61,7 @@ from .causal_fidelity import CausalMaskingMetric
 from .adversarial_robustness import PGDRobustnessMetric
 from .normalize    import normalize_attribution
 from explainers.base import UnsupportedArchitectureError
+from .sample_metrics import SampleMetricComputer
 
 log = logging.getLogger(__name__)
 
@@ -212,9 +213,10 @@ class BenchmarkRunner:
 
                     # --- Optional C1–C3 per sample -------------------------
                     if self.complexity is not None:
-                        c_scores = self.complexity.compute_all(att)
+                        c_scores = self.complexity.compute(att).to_dict()
                         for k, v in c_scores.items():
-                            all_metrics[k].append(v)
+                            if isinstance(v, (int, float)):
+                                all_metrics[k].append(v)
 
                     # --- Optional R1–R3 per sample -------------------------
                     if self.robustness is not None:
@@ -417,8 +419,13 @@ class Phase3Runner:
         device:     "str | torch.device | None" = None,
         norm_mode:  str  = "minmax",
         patch_size: int  = 16,
+        metric_computer: Optional[SampleMetricComputer] = None,
     ) -> None:
         self.models     = models
+        # When set, per-sample metrics (L1–L3, C, F, R, correctness) are
+        # computed while model and image are in memory and stored in the
+        # checkpoint under 'metrics'. None = attributions only.
+        self.metric_computer = metric_computer
         self.explainers = explainers
         self.datasets   = datasets
         self.device     = torch.device(device) if isinstance(device, str) else (
@@ -504,7 +511,8 @@ class Phase3Runner:
 
                     try:
                         results = self._run_combination(
-                            key, explainer, loader, ckpt_path, max_batches
+                            key, explainer, loader, ckpt_path, max_batches,
+                            names=(ds_name, model_name, exp_name),
                         )
                     except UnsupportedArchitectureError as exc:
                         # e.g. attention-based explainers on Swin-B (no CLS token).
@@ -527,6 +535,7 @@ class Phase3Runner:
         loader:      "torch.utils.data.DataLoader",
         ckpt_path:   Path,
         max_batches: Optional[int],
+        names:       Optional[tuple] = None,
     ) -> Dict[str, Any]:
         """
         Run one (dataset, model, explainer) combination.
@@ -552,7 +561,10 @@ class Phase3Runner:
         attributions: List[torch.Tensor] = []
         labels_list:  List[int]          = []
         gt_masks_list: List[Any]         = []
+        metrics_list: List[Dict[str, float]] = []
         n_samples = 0
+        bound = (self.metric_computer.bind(explainer)
+                 if self.metric_computer is not None else None)
 
         with torch.no_grad():
             batch_iter = tqdm(loader, desc=key, position=3, leave=False)
@@ -591,6 +603,9 @@ class Phase3Runner:
                         gt_mask[i].cpu() if gt_mask is not None else None
                     )
 
+                if bound is not None:
+                    metrics_list.extend(bound.compute_batch(x, y, gt_mask, att_norm))
+
                 n_samples += B
                 batch_iter.set_postfix(n=n_samples)
 
@@ -602,6 +617,11 @@ class Phase3Runner:
             "gt_masks":     gt_masks_list,
             "norm_mode":    self.norm_mode,
         }
+        if names is not None:
+            results.update(dict(zip(("dataset", "model", "explainer"), names)))
+        if bound is not None:
+            results["metrics"] = metrics_list
+            results["metric_config"] = self.metric_computer.config()
 
         # Atomic write: write to tmp then rename
         tmp_path = ckpt_path.with_suffix(".pkl.tmp")

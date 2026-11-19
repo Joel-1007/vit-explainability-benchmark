@@ -128,8 +128,7 @@ if [ -f "$RESULTS_CSV" ]; then
     # phase4_ablations.py (A1–A4) is not implemented yet and is not run here.
 else
     echo "  ⚠️  No aggregated_results.csv — Phase 4 analytics skipped."
-    echo "       No script writes this file yet: Phase 3 checkpoints (.pkl) still"
-    echo "       need an aggregation step before Phase 4 can run."
+    echo "       run_phase3.py writes it at the end of a run; check the log above."
 fi
 
 # --- Summary --------------------------------------------------

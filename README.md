@@ -100,6 +100,8 @@ python run_phase3.py --data-root /path/to/datasets \
 
 The benchmark automatically checkpoints each `(dataset, model, explainer)` combination as a `.pkl` file, so interrupted runs can be resumed seamlessly.
 
+**Outputs.** Every image gets localization (L1–L3), complexity (C1–C3), fidelity (F1–F3) and correctness; robustness (R1–R3) is computed on the first `--robustness-subset` images per combination (default 100, `-1` = all) because R1 re-runs the explainer `--robustness-samples` times per image. At the end of a run the checkpoint dir contains `aggregated_results.csv` (one row per sample, the Phase 4 input) and `combination_summary.csv` (means, accuracy and L4 CalibGap per combination). Rebuild both at any time with `python -m metrics.aggregate --checkpoint-dir results/phase3`. Restrict families with `--metrics localization complexity`.
+
 **Fine-tuned weights.** Each dataset needs its own fine-tuned model. Pass `--weights-dir DIR` containing `{model}_{dataset}.pth` or the trainer's `{model}_ft_{dataset}_*.pth` files. A missing checkpoint is an error; `--allow-random-head` skips that check for pipeline smoke tests only (results are meaningless).
 
 **Dataset layout** under `--data-root` (masks are loaded alongside images; see [utils/eval_datasets.py](utils/eval_datasets.py) for class orders):

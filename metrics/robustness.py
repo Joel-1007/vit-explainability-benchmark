@@ -344,11 +344,24 @@ def randomise_classifier_labels(
     shuf_model = copy.deepcopy(model)
 
     # Locate the head layer
+    # Also look inside model_zoo wrappers (``.backbone``) and timm
+    # ClassifierHead modules (``head.fc``, used by Swin).
+    def _resolve(root: nn.Module, path: str):
+        obj = root
+        for part in path.split("."):
+            obj = getattr(obj, part, None)
+            if obj is None:
+                return None
+        return obj
+
     head: Optional[nn.Linear] = None
     for alias in _HEAD_ALIASES:
-        layer = getattr(shuf_model, alias, None)
-        if isinstance(layer, nn.Linear):
-            head = layer
+        for path in (alias, f"{alias}.fc", f"backbone.{alias}", f"backbone.{alias}.fc"):
+            layer = _resolve(shuf_model, path)
+            if isinstance(layer, nn.Linear):
+                head = layer
+                break
+        if head is not None:
             break
 
     if head is None:

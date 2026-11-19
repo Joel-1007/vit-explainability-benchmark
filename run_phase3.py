@@ -73,6 +73,8 @@ from explainers import (
     LIMEExplainer,
 )
 from metrics.runner import Phase3Runner
+from metrics.sample_metrics import FAMILIES, SampleMetricComputer
+from metrics.aggregate import aggregate
 from utils.eval_datasets import DATASET_CLASSES, NUM_CLASSES, build_eval_loader
 
 log = logging.getLogger("run_phase3")
@@ -208,6 +210,9 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
             "patch_size": args.patch_size,
             "weights_dir": args.weights_dir,
             "allow_random_head": args.allow_random_head,
+            "metrics": args.metrics,
+            "robustness_subset": args.robustness_subset,
+            "robustness_samples": args.robustness_samples,
             "batch_size": args.batch_size,
             "dry_run": args.dry_run,
         },
@@ -341,6 +346,20 @@ def build_parser() -> argparse.ArgumentParser:
              "pre-trained backbone with a random head. Results are NOT valid.",
     )
     p.add_argument(
+        "--metrics", nargs="+", default=list(FAMILIES), choices=list(FAMILIES),
+        help="Metric families computed per sample (default: all).",
+    )
+    p.add_argument(
+        "--robustness-subset", type=int, default=100,
+        help="Compute R1–R3 on the first N images of each combination "
+             "(default: 100; R1 re-runs the explainer --robustness-samples times "
+             "per image). Use -1 for all images.",
+    )
+    p.add_argument(
+        "--robustness-samples", type=int, default=20,
+        help="Perturbations per image for R1 Max-Sensitivity (default: 20).",
+    )
+    p.add_argument(
         "--num-workers", type=int, default=4,
         help="DataLoader worker processes (default: 4).",
     )
@@ -447,6 +466,13 @@ def main(argv: list[str] | None = None) -> None:
     t0 = time.time()
     results: Dict[str, Any] = {}
     failures: list[str] = []
+    metric_computer = SampleMetricComputer(
+        families=args.metrics,
+        norm_mode=args.norm_mode,
+        robustness_subset=None if args.robustness_subset < 0 else args.robustness_subset,
+        robustness_samples=args.robustness_samples,
+        seed=args.seed,
+    )
 
     for ds_name, loader in datasets.items():
         for model_name in args.models:
@@ -470,6 +496,7 @@ def main(argv: list[str] | None = None) -> None:
                 device=device,
                 norm_mode=args.norm_mode,
                 patch_size=args.patch_size or MODEL_GRID_PATCH[model_name],
+                metric_computer=metric_computer,
             )
             results.update(runner.run(
                 checkpoint_dir=args.checkpoint_dir,
@@ -485,6 +512,15 @@ def main(argv: list[str] | None = None) -> None:
 
     # ── Generate summary CSV from all checkpoints ────────────────────────
     _generate_summary_csv(args.checkpoint_dir)
+
+    # ── Aggregate per-sample metrics for Phase 4 ─────────────────────────
+    agg_paths = None
+    try:
+        agg_paths = aggregate(args.checkpoint_dir)
+        log.info(f"Aggregated results: {agg_paths[0]} and {agg_paths[1]}")
+    except Exception as e:
+        log.error(f"Aggregation failed: {e}")
+        failures.append(f"aggregation ({e})")
 
     # ── Summary ──────────────────────────────────────────────────────────
     summary = (
@@ -509,15 +545,18 @@ def main(argv: list[str] | None = None) -> None:
     existing_ckpts = Phase3Runner.list_checkpoints(args.checkpoint_dir)
     summary += f"\n  Total checkpoints on disk: {len(existing_ckpts)}/{total_combos}\n"
 
+    if agg_paths:
+        summary += f"\n  Per-sample results : {agg_paths[0]}\n  Summary            : {agg_paths[1]}\n"
     summary += (
         "\n  Next steps:\n"
         "    • Verify checkpoints: python -m metrics.runner --list-checkpoints\n"
-        "    • Run Phase 4 analysis: python scripts/phase4_correlation_analysis.py\n"
+        "    • Run Phase 4 analysis: python scripts/phase4_correlation_analysis.py "
+        "--results_csv <checkpoint-dir>/aggregated_results.csv\n"
         + "=" * 65 + "\n"
     )
 
     if failures:
-        summary += f"\n  FAILED to load models for: {', '.join(failures)}\n"
+        summary += f"\n  FAILED: {', '.join(failures)}\n"
 
     print(summary)
     if failures:

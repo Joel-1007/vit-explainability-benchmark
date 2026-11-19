@@ -67,6 +67,7 @@ Legend:
 | 3.2 | Normalisation pipeline | ✅ | `metrics/normalize.py`, 24 tests |
 | 3.3 | `BenchmarkRunner` / `Phase3Runner` | ✅ | `metrics/runner.py`, 36 tests |
 | 3.3 | Checkpointing (`.pkl` per combo) | ✅ | Atomic write, resume support |
+| 3.3 | Per-sample metrics + aggregation | ✅ | `metrics/sample_metrics.py`, `metrics/aggregate.py` → `aggregated_results.csv`, `combination_summary.csv` (2026-11-19) |
 | 3.3 | CLI entry point | ✅ | `python -m metrics.runner` |
 | 3.4 | Sanity checks S1–S3 | ✅ | `metrics/sanity.py`, 16 tests |
 | 3.4 | Run sanity checks on 100-sample subset | 🔶 | Requires GPU + dataset |
@@ -84,12 +85,12 @@ Legend:
 |---|------|--------|-------|
 | 4.1 | Inter-metric correlation script | ✅ | `scripts/phase4_correlation_analysis.py` |
 | 4.1 | Compute Spearman correlation matrix | 🔶 | Requires Phase 3 results CSV |
-| 4.1 | Factor analysis (PCA/varimax) | 🔶 | Requires Phase 3 results CSV |
+| 4.1 | Factor analysis (PCA/varimax) | ❌ | Not implemented — the script used to write hard-coded numbers; now skipped with a warning |
 | 4.1 | Write interpretation paragraph | 🔶 | Post-analysis writing |
 | 4.2 | Task-metric interaction script | ✅ | `scripts/phase4_interaction_analysis.py` |
 | 4.2 | Kendall τ concordance | 🔶 | Requires Phase 3 results CSV |
 | 4.2 | Practitioner decision tree | 🔶 | Requires concordance results |
-| 4.3 | Ablation studies script | ✅ | `scripts/phase4_ablations.py` |
+| 4.3 | Ablation studies script | ❌ | `scripts/phase4_ablations.py` raises NotImplementedError (previously random data); Cohen's d helper is ready |
 | 4.3 | A1: Token resolution ablation | 🔶 | Requires GPU re-runs |
 | 4.3 | A2: Layer depth ablation | 🔶 | Requires GPU re-runs |
 | 4.3 | A3: Masking strategy ablation | 🔶 | Requires GPU re-runs |

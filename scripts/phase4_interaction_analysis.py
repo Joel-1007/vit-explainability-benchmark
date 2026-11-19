@@ -5,7 +5,12 @@ Computes Kendall tau concordance between rankings across datasets.
 """
 
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from metrics.aggregate import metric_columns  # noqa: E402
+from metrics.sample_metrics import metric_direction  # noqa: E402
 import pandas as pd
 import numpy as np
 import scipy.stats as ss
@@ -16,19 +21,19 @@ def compute_rankings(results_df: pd.DataFrame) -> pd.DataFrame:
     Returns: DataFrame with columns [dataset, metric, explainer, rank].
     """
     # Group by dataset, explainer to get mean metric scores
-    metric_cols = [c for c in results_df.columns if c not in ["explainer", "model", "dataset", "sample_id"]]
+    metric_cols = [c for c in metric_columns(results_df) if metric_direction(c) is not None]
+    skipped = sorted(set(metric_columns(results_df)) - set(metric_cols))
+    if skipped:
+        print(f"Skipping metrics with unknown direction: {skipped}")
     mean_scores = results_df.groupby(["dataset", "explainer"])[metric_cols].mean().reset_index()
     
     rankings = []
     for dataset in mean_scores["dataset"].unique():
         ds_data = mean_scores[mean_scores["dataset"] == dataset]
         for metric in metric_cols:
-            # NOTE: ranks assume higher is better for every metric. For
-            # lower-is-better metrics (e.g. R1 MaxSens) the per-dataset ranks
-            # are inverted; Kendall tau between datasets is unaffected because
-            # the flip is the same on both sides, but explainer_rankings.csv
-            # is not. Add per-metric directions before reporting ranks.
-            ds_data_sorted = ds_data.sort_values(by=metric, ascending=False).reset_index(drop=True)
+            # Rank 1 = best: descending for higher-is-better, ascending otherwise
+            higher_better = metric_direction(metric) > 0
+            ds_data_sorted = ds_data.sort_values(by=metric, ascending=not higher_better).reset_index(drop=True)
             for idx, row in ds_data_sorted.iterrows():
                 rankings.append({
                     "dataset": dataset,

@@ -43,9 +43,9 @@ uv run python run_phase3.py \
 echo "[4/4] Generating Analytical Artifacts (Phase 4)"
 mkdir -p "$OUTPUT_DIR"
 
-# Phase 4 reads an aggregated per-sample CSV. No script writes it yet: the
-# Phase 3 .pkl checkpoints still need an aggregation step. The Phase 4 scripts
-# refuse to run without real results (they no longer generate dummy data).
+# run_phase3.py writes aggregated_results.csv (one row per sample) and
+# combination_summary.csv into the checkpoint dir at the end of a run.
+# Re-create them any time with: uv run python -m metrics.aggregate --checkpoint-dir DIR
 RESULTS_CSV="$CHECKPOINT_DIR/aggregated_results.csv"
 if [ -f "$RESULTS_CSV" ]; then
   echo "Running Analytical Modules..."
@@ -54,7 +54,7 @@ if [ -f "$RESULTS_CSV" ]; then
   # phase4_ablations.py (A1–A4) is not implemented yet and is not run here.
 else
   echo "WARNING: $RESULTS_CSV not found — Phase 4 analytics SKIPPED."
-  echo "         Phase 3 checkpoints are in $CHECKPOINT_DIR; aggregate them first."
+  echo "         Did Phase 3 finish? Re-run: uv run python -m metrics.aggregate --checkpoint-dir $CHECKPOINT_DIR"
 fi
 
 echo "================================================="

@@ -5,7 +5,11 @@ Visualises an inter-metric correlation heatmap. Also includes factor analysis sc
 """
 
 import os
+import sys
 import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from metrics.aggregate import metric_columns  # noqa: E402
 import scipy.stats as ss
 import pandas as pd
 import numpy as np
@@ -18,8 +22,8 @@ def compute_metric_correlations(results_df: pd.DataFrame) -> pd.DataFrame:
                 rows = (explainer, model, dataset, sample) combinations.
     Returns a correlation matrix.
     """
-    metric_cols = [c for c in results_df.columns
-                   if c not in ["explainer", "model", "dataset", "sample_id"]]
+    # Excludes ids and bookkeeping (label, pred, correct)
+    metric_cols = metric_columns(results_df)
     corr_matrix = pd.DataFrame(index=metric_cols, columns=metric_cols, dtype=float)
     for m1 in metric_cols:
         for m2 in metric_cols:
@@ -83,7 +87,10 @@ def main():
     plot_correlation_heatmap(corr_matrix, heatmap_out)
 
     fa_out = os.path.join(args.output_dir, "factor_analysis_results.csv")
-    run_factor_analysis(df, fa_out)
+    try:
+        run_factor_analysis(df, fa_out)
+    except NotImplementedError as e:
+        print(f"WARNING: factor analysis SKIPPED — {e}")
 
 if __name__ == "__main__":
     main()
