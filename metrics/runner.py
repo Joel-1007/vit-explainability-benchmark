@@ -19,7 +19,7 @@ from metrics.localization import LocalizationMetrics
 from metrics.robustness import (
     RobustnessMetrics,
     randomise_model_weights,
-    randomise_classifier_labels,
+    permute_classifier_head,
 )
 
 # Localization only (Task 2.2, backward-compatible)
@@ -35,7 +35,7 @@ runner = BenchmarkRunner(
     explainer=my_explainer,
     robustness=rm,
     randomised_model=randomise_model_weights(model),
-    label_randomised_model=randomise_classifier_labels(model),
+    label_randomised_model=permute_classifier_head(model),
 )
 results = runner.evaluate(model, val_loader, dataset_name="cub200")
 # results["macro"]["miou"], results["macro"]["max_sensitivity"], etc.
@@ -87,7 +87,7 @@ class BenchmarkRunner:
     robustness : RobustnessMetrics | None
         When provided, R1–R3 are computed per sample and included in
         ``results["macro"]`` under keys 'max_sensitivity',
-        'model_randomisation', 'label_randomisation'.
+        'model_randomisation', 'head_permutation'.
         When None (default), R1–R3 are silently skipped and all
         existing behaviour is preserved unchanged.
     randomised_model : nn.Module | None
@@ -133,7 +133,7 @@ class BenchmarkRunner:
             if label_randomised_model is None:
                 log.warning(
                     "BenchmarkRunner: robustness is set but label_randomised_model "
-                    "is None.  R3 (LabelRand) will be skipped."
+                    "is None.  R3 (HeadPerm) will be skipped."
                 )
 
     # ------------------------------------------------------------------
@@ -252,8 +252,8 @@ class BenchmarkRunner:
                                 if isinstance(att_shuf_list, (list, tuple))
                                 else att_shuf_list.cpu()
                             )
-                            r3 = self.robustness.label_randomisation(att, att_shuf)
-                            all_metrics["label_randomisation"].append(r3)
+                            r3 = self.robustness.head_permutation(att, att_shuf)
+                            all_metrics["head_permutation"].append(r3)
 
                     # --- New Metrics: Causal Fidelity & Adversarial Robustness ---
                     if self.causal_fidelity is not None:
@@ -326,7 +326,7 @@ class BenchmarkRunner:
             + (
                 f" | MaxSens={macro.get('max_sensitivity', float('nan')):.4f}"
                 f" | ModelRand={macro.get('model_randomisation', float('nan')):.4f}"
-                f" | LabelRand={macro.get('label_randomisation', float('nan')):.4f}"
+                f" | HeadPerm={macro.get('head_permutation', float('nan')):.4f}"
                 if self.robustness is not None else ""
             )
             + (

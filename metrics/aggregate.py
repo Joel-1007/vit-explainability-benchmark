@@ -23,6 +23,7 @@ import pickle
 from pathlib import Path
 from typing import Tuple
 
+import numpy as np
 import pandas as pd
 
 ID_COLUMNS = ["dataset", "model", "explainer", "sample_id"]
@@ -41,7 +42,7 @@ def metric_columns(df: pd.DataFrame) -> list[str]:
 
 
 _PRIMARY = ["miou", "pointing_game", "egt", "gini", "entropy_norm", "emr_90",
-            "max_sensitivity", "model_randomisation", "label_randomisation",
+            "max_sensitivity", "model_randomisation", "head_permutation",
             "pgd_robustness"]
 
 
@@ -106,8 +107,28 @@ def calibration_gap(group: pd.DataFrame) -> float:
     return float(ok.mean() - bad.mean())
 
 
-def summarise(per_sample: pd.DataFrame) -> pd.DataFrame:
-    """One row per (dataset, model, explainer) with metric means and L4."""
+def bootstrap_ci(values, n_boot: int = 1000, level: float = 0.95, seed: int = 0):
+    """
+    Percentile bootstrap CI of the mean over samples (NaNs dropped).
+    Returns (low, high); (nan, nan) for fewer than 2 values.
+    """
+    v = np.asarray(values, dtype=float)
+    v = v[np.isfinite(v)]
+    if len(v) < 2:
+        return math.nan, math.nan
+    rng = np.random.default_rng(seed)
+    means = v[rng.integers(0, len(v), size=(n_boot, len(v)))].mean(axis=1)
+    a = (1 - level) / 2
+    return float(np.quantile(means, a)), float(np.quantile(means, 1 - a))
+
+
+def summarise(per_sample: pd.DataFrame, n_boot: int = 1000) -> pd.DataFrame:
+    """
+    One row per (dataset, model, explainer): metric means, L4, and 95%
+    percentile-bootstrap CIs (``<metric>_ci_low/_ci_high``) for the primary
+    metrics. The CIs capture sample variation only; seed-to-seed variation of
+    fine-tuning needs several checkpoints per (model, dataset).
+    """
     keys = ["dataset", "model", "explainer"]
     cols = metric_columns(per_sample)
     g = per_sample.groupby(keys, sort=True)
@@ -115,7 +136,11 @@ def summarise(per_sample: pd.DataFrame) -> pd.DataFrame:
     summary.insert(0, "accuracy", g["correct"].mean())
     summary.insert(0, "n_samples", g.size())
     summary["calibration_gap"] = g.apply(calibration_gap, include_groups=False)
-    for c in ("max_sensitivity", "model_randomisation", "label_randomisation"):
+    for c in primary_metric_columns(per_sample):
+        cis = g[c].apply(lambda v: bootstrap_ci(v, n_boot=n_boot))
+        summary[f"{c}_ci_low"] = cis.map(lambda t: t[0])
+        summary[f"{c}_ci_high"] = cis.map(lambda t: t[1])
+    for c in ("max_sensitivity", "model_randomisation", "head_permutation"):
         if c in per_sample:
             summary[f"n_{c}"] = g[c].count()      # robustness runs on a subset
     return summary.reset_index()

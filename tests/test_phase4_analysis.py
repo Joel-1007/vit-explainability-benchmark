@@ -285,3 +285,47 @@ def test_end_to_end_ablations_and_factor_analysis(tmp_path):
     assert set(ranks.explainer) == {"gradcam", "raw_attention", "rollout"}   # main only
     summary = pd.read_csv(out / "ablation_summary.csv")
     assert set(summary.ablation) == {"A1", "A2", "A3", "A4"}
+
+
+# ---------------------------------------------------------------------------
+# Integrated Gradients (E8) — axioms hold up to the Riemann-sum error
+# ---------------------------------------------------------------------------
+
+class _PatchMasked(torch.nn.Module):
+    """Wraps a model so the top-left 16x16 patch never influences the output."""
+    def __init__(self, inner):
+        super().__init__()
+        self.inner = inner
+
+    def forward(self, x):
+        x = x.clone()
+        x[..., :16, :16] = 0.0
+        return self.inner(x)
+
+
+@pytest.mark.parametrize("arch", ["vit_tiny_patch16_224", "swin_tiny_patch4_window7_224"])
+def test_integrated_gradients_completeness_converges(arch):
+    import timm
+    from explainers import IntegratedGradientsExplainer
+    torch.manual_seed(0)
+    m = timm.create_model(arch, pretrained=False, num_classes=5).eval()
+    x = torch.randn(3, 224, 224)
+    gaps = []
+    for steps in (10, 100):
+        e = IntegratedGradientsExplainer(m, n_steps=steps)
+        phi = e.explain(x, 1)
+        with torch.no_grad():
+            f = m(torch.stack([x, torch.zeros_like(x)]))[:, 1]
+        assert phi.shape == (14, 14)
+        assert float(phi.sum()) == pytest.approx(float(f[0] - f[1]), abs=abs(e.last_completeness_gap) + 1e-4)
+        gaps.append(abs(e.last_completeness_gap))
+    assert gaps[1] < gaps[0] and gaps[1] < 0.01
+
+
+def test_integrated_gradients_dummy_patch_gets_zero():
+    import timm
+    from explainers import IntegratedGradientsExplainer
+    torch.manual_seed(0)
+    m = _PatchMasked(timm.create_model("vit_tiny_patch16_224", pretrained=False, num_classes=5)).eval()
+    phi = IntegratedGradientsExplainer(m, n_steps=20).explain(torch.randn(3, 224, 224), 0)
+    assert phi[0, 0] == 0.0 and phi.abs().sum() > 0

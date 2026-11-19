@@ -20,7 +20,7 @@ import torch.nn as nn
 from metrics.aggregate import (
     NON_METRIC_COLUMNS, aggregate, calibration_gap, load_per_sample, summarise,
 )
-from metrics.robustness import randomise_classifier_labels
+from metrics.robustness import permute_classifier_head, randomise_classifier_labels
 from metrics.sample_metrics import SampleMetricComputer, metric_direction
 from tests.test_eval_datasets import make_cub, make_voc
 
@@ -35,7 +35,7 @@ ROOT = Path(__file__).resolve().parents[1]
     ("miou", 1), ("iou@0.25", 1), ("egt", 1), ("gini", 1), ("entropy_norm", -1),
     ("emr_90", -1), ("sufficiency@0.10", -1), ("comprehensiveness@0.50", 1),
     ("log_odds_drop@0.20", 1), ("max_sensitivity", -1), ("model_randomisation", 1),
-    ("label_randomisation", 1), ("pred", None), ("whatever", None),
+    ("head_permutation", 1), ("pred", None), ("whatever", None),
 ])
 def test_metric_direction(name, d):
     assert metric_direction(name) == d
@@ -57,10 +57,11 @@ class _Wrapper(nn.Module):
 
 
 @pytest.mark.parametrize("arch", ["vit_tiny_patch16_224", "swin_tiny_patch4_window7_224"])
-def test_label_randomisation_finds_wrapped_heads(arch):
+def test_head_permutation_finds_wrapped_heads(arch):
     import timm
     model = _Wrapper(timm.create_model(arch, pretrained=False, num_classes=7))
-    shuf = randomise_classifier_labels(model, seed=0)
+    assert randomise_classifier_labels is permute_classifier_head      # old name kept
+    shuf = permute_classifier_head(model, seed=0)
     w0 = [p for n, p in model.named_parameters() if n.endswith("head.weight") or n.endswith("head.fc.weight")]
     w1 = [p for n, p in shuf.named_parameters() if n.endswith("head.weight") or n.endswith("head.fc.weight")]
     assert len(w0) == 1 and not torch.equal(w0[0], w1[0])
@@ -138,7 +139,7 @@ def test_phase3_writes_metrics_and_csvs(phase3_output):
     assert set(df.explainer) == {"gradcam", "rollout", "raw_attention"}
     for col in ["miou", "pointing_game", "egt", "gini", "entropy_norm", "emr_90",
                 "sufficiency@0.10", "comprehensiveness@0.50", "log_odds_drop@0.20",
-                "max_sensitivity", "model_randomisation", "label_randomisation"]:
+                "max_sensitivity", "model_randomisation", "head_permutation"]:
         assert col in df.columns, col
     assert df.miou.between(0, 1).all() and df.gini.between(0, 1).all()
     assert df.entropy_norm.between(0, 1).all() and df.emr_90.between(0, 1).all()
@@ -148,7 +149,7 @@ def test_phase3_writes_metrics_and_csvs(phase3_output):
     per_combo = df.groupby(["dataset", "explainer"]).max_sensitivity.count()
     assert (per_combo == 1).all()
     assert (df.max_sensitivity.dropna() >= 0).all()
-    assert df.label_randomisation.dropna().between(0, 0.5).all()
+    assert df.head_permutation.dropna().between(0, 0.5).all()
 
     summ = pd.read_csv(ckpt / "combination_summary.csv")
     assert len(summ) == 6 and "calibration_gap" in summ and "accuracy" in summ

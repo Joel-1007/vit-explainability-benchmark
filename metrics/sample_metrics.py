@@ -6,7 +6,7 @@ Computes, for every image of a (dataset, model, explainer) combination:
     localization  L1 iou@τ / miou, L2 pointing_game, L3 egt   (needs gt_mask)
     complexity    C1 gini, C2 entropy_norm, C3 emr_50/90/95, k_star_90
     fidelity      F1 sufficiency@k, F2 comprehensiveness@k, F3 log_odds_drop@k
-    robustness    R1 max_sensitivity, R2 model_randomisation, R3 label_randomisation
+    robustness    R1 max_sensitivity, R2 model_randomisation, R3 head_permutation
                   (first ``robustness_subset`` images only — it re-runs the
                   explainer 2 + n_samples times per image)
     adversarial   pgd_robustness: cosine similarity of the map before/after a
@@ -38,7 +38,7 @@ from .localization import LocalizationMetrics
 from .normalize import normalize_attribution
 from .robustness import (
     RobustnessMetrics,
-    randomise_classifier_labels,
+    permute_classifier_head,
     randomise_model_weights,
 )
 
@@ -54,7 +54,7 @@ METRIC_DIRECTIONS: Dict[str, int] = {
     "sufficiency@": -1,          # f(x) - f(x_keep): small = kept patches suffice
     "comprehensiveness@": +1,    # f(x) - f(x_drop): large = dropped patches mattered
     "log_odds_drop@": +1,
-    "max_sensitivity": -1, "model_randomisation": +1, "label_randomisation": +1,
+    "max_sensitivity": -1, "model_randomisation": +1, "head_permutation": +1,
     "pgd_robustness": +1,
 }
 
@@ -177,7 +177,7 @@ class BoundMetrics:
             rand = randomise_model_weights(self.model, seed=self.cfg.seed).to(device).eval()
             self._rand_explainer = cls(rand, patch_size=ps)
             try:
-                shuf = randomise_classifier_labels(self.model, seed=self.cfg.seed).to(device).eval()
+                shuf = permute_classifier_head(self.model, seed=self.cfg.seed).to(device).eval()
                 self._shuf_explainer = cls(shuf, patch_size=ps)
             except AttributeError as e:
                 self._shuf_error = str(e)
@@ -255,10 +255,10 @@ class BoundMetrics:
         )
         if shuf_exp is not None:
             att_shuf = self._explain_one(shuf_exp, x1, y)
-            out["label_randomisation"] = (
-                self.rob.label_randomisation(att, att_shuf)
+            out["head_permutation"] = (
+                self.rob.head_permutation(att, att_shuf)
                 if torch.isfinite(att_shuf).all() else math.nan
             )
         else:
-            out["label_randomisation"] = math.nan
+            out["head_permutation"] = math.nan
         return out

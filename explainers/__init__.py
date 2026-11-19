@@ -36,12 +36,14 @@ from .chefer_lrp   import CheferLRPExplainer
 from .rise         import RISEExplainer
 from .lime         import LIMEExplainer
 from .dime         import DIMEExplainer
+from .integrated_gradients import IntegratedGradientsExplainer
 
 __all__ = [
     # ABC + exceptions
     "BaseExplainer",
     "UnsupportedArchitectureError",
     # Explainers E1–E7
+    "IntegratedGradientsExplainer",   # E8 (optional)
     "RawAttentionExplainer",          # E1
     "RawPatchAttentionExplainer",
     "RawAttentionLast3Explainer",

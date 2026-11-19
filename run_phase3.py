@@ -74,6 +74,7 @@ from explainers import (
     CheferLRPExplainer,
     RISEExplainer,
     LIMEExplainer,
+    IntegratedGradientsExplainer,
 )
 from metrics.runner import Phase3Runner
 from metrics.sample_metrics import ALL_FAMILIES, FAMILIES, SampleMetricComputer
@@ -103,7 +104,12 @@ ABLATION_EXPLAINER_REGISTRY: Dict[str, type] = {
     "raw_attention_last3": RawAttentionLast3Explainer,      # A2 last 3 layers
     "raw_attention_all":   RawAttentionAllLayersExplainer,  # A2 all layers
 }
-ALL_EXPLAINERS = {**EXPLAINER_REGISTRY, **ABLATION_EXPLAINER_REGISTRY}
+# Optional main-matrix explainers (not run by default; select with --explainers)
+OPTIONAL_EXPLAINER_REGISTRY: Dict[str, type] = {
+    "integrated_gradients": IntegratedGradientsExplainer,   # E8, axiomatic reference
+}
+ALL_EXPLAINERS = {**EXPLAINER_REGISTRY, **OPTIONAL_EXPLAINER_REGISTRY,
+                  **ABLATION_EXPLAINER_REGISTRY}
 ALL_MODELS = [*MODEL_REGISTRY, *ABLATION_MODEL_REGISTRY]
 
 
@@ -317,6 +323,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=list(ALL_EXPLAINERS),
         metavar="EXPLAINER",
         help=f"Explainers to evaluate. Default: E1–E6 ({', '.join(EXPLAINER_REGISTRY.keys())}). "
+             f"Optional: {', '.join(OPTIONAL_EXPLAINER_REGISTRY)}. "
              f"Ablation variants: {', '.join(ABLATION_EXPLAINER_REGISTRY)}.",
     )
     p.add_argument(

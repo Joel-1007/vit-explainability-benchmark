@@ -5,14 +5,16 @@ Implements the three robustness metrics R1–R3 defined in Task 2.3 §1.
 
 R1  max_sensitivity        — worst-case perturbation response (Yeh et al., 2019)
 R2  model_randomisation    — SSIM-based weight-scramble sanity check (Adebayo et al., 2018)
-R3  label_randomisation    — Spearman rank-corr under classifier-head permutation
+R3  head_permutation       — Spearman rank-corr under classifier-head permutation
+                             (alias: label_randomisation — see note on R3 below)
 R3+ spearman_layer_curve   — per-layer ρ curve (cascading randomisation, guide §R3)
 
 Also exports three model-utility functions:
 
-    randomise_model_weights(model)       — deep-copy; all params ← N(0, 1)
-    randomise_classifier_labels(model)   — deep-copy; only final Linear head
+    randomise_model_weights(model)       — deep-copy; every layer re-initialised
+    permute_classifier_head(model)       — deep-copy; only final Linear head
                                            weights are column-permuted
+                                           (alias: randomise_classifier_labels)
     randomise_model_cascade(model, n)    — deep-copy; last n transformer
                                            blocks randomised (cascading)
 
@@ -42,12 +44,12 @@ Usage
     # R2 — Model Randomisation  (att_rand from randomise_model_weights copy)
     mr = rm.model_randomisation(att_orig, att_rand)
 
-    # R3 — Label Randomisation  (att_shuf from randomise_classifier_labels copy)
-    lr = rm.label_randomisation(att_orig, att_shuf)
+    # R3 — Head Permutation  (att_shuf from permute_classifier_head copy)
+    hp = rm.head_permutation(att_orig, att_shuf)
 
     # All three in one call
     scores = rm.compute_all(explainer, model, image, att_rand, att_shuf)
-    # → {'max_sensitivity': 0.31, 'model_randomisation': 0.87, 'label_randomisation': 0.54}
+    # → {'max_sensitivity': 0.31, 'model_randomisation': 0.87, 'head_permutation': 0.54}
 """
 
 from __future__ import annotations
@@ -268,43 +270,47 @@ def _perturb(
 def randomise_model_weights(
     model: nn.Module,
     seed: int = 0,
+    init_std: float = 0.02,
 ) -> nn.Module:
     """
-    Return a deep-copy of `model` with **all** parameters re-initialised
-    from N(0, 1) (and all biases reset to zero).
+    Return a deep copy of ``model`` with every layer re-initialised to an
+    untrained state — the 'fully randomised' model for R2 (Model
+    Randomisation, Adebayo et al., 2018). The original ``model`` is never
+    mutated.
 
-    This is the 'fully randomised' model required for R2 (Model Randomisation).
-    The original `model` is never mutated.
+    Each module that defines ``reset_parameters()`` (Linear, Conv, LayerNorm,
+    …) is reset with PyTorch's standard initialisation: weights redrawn,
+    LayerNorm scales/shifts back to 1/0. Parameters owned by no such module
+    (e.g. ViT ``cls_token``, ``pos_embed``, LayerScale ``gamma``) are drawn
+    from N(0, ``init_std``²), the usual ViT initialisation scale.
+
+    (An earlier version set *every* parameter, LayerNorm included, to
+    N(0, 1). Through 12 transformer blocks that can overflow, producing
+    NaN attributions rather than a meaningful random-model baseline.)
 
     Parameters
     ----------
-    model : any nn.Module (fine-tuned or pre-trained).
-    seed  : integer seed for reproducible randomisation.
-
-    Returns
-    -------
-    nn.Module — independent deep copy with randomised weights.
-
-    Notes
-    -----
-    All layer types are handled uniformly: each parameter tensor is replaced
-    with a draw from N(0, 1).  No layer-specific Init heuristics (Kaiming,
-    Xavier, etc.) are applied — the goal is maximum randomisation, not
-    training-ready initialisation.
+    model    : any nn.Module (fine-tuned or pre-trained).
+    seed     : seed for reproducible re-initialisation.
+    init_std : std for parameters without a module-level initialiser.
     """
     rand_model = copy.deepcopy(model)
-    gen = torch.Generator()
-    gen.manual_seed(seed)
-    with torch.no_grad():
-        for name, param in rand_model.named_parameters():
-            if "bias" in name:
-                nn.init.zeros_(param)
-            else:
-                nn.init.normal_(param, mean=0.0, std=1.0)
+    covered = set()
+    with torch.random.fork_rng(devices=[]):
+        torch.manual_seed(seed)
+        with torch.no_grad():
+            for module in rand_model.modules():
+                reset = getattr(module, "reset_parameters", None)
+                if callable(reset):
+                    reset()
+                    covered.update(id(p) for p in module.parameters(recurse=False))
+            for param in rand_model.parameters():
+                if id(param) not in covered:
+                    nn.init.normal_(param, mean=0.0, std=init_std)
     return rand_model
 
 
-def randomise_classifier_labels(
+def permute_classifier_head(
     model: nn.Module,
     seed: int = 0,
     head_attr: str = "head",
@@ -384,6 +390,10 @@ def randomise_classifier_labels(
             head.bias.data = head.bias.data[row_perm]
 
     return shuf_model
+
+
+# Backward-compatible name
+randomise_classifier_labels = permute_classifier_head
 
 
 def randomise_model_cascade(
@@ -649,13 +659,18 @@ class RobustnessMetrics:
     # R3 — Label Randomisation
     # ------------------------------------------------------------------
 
-    def label_randomisation(
+    def head_permutation(
         self,
         att_orig: torch.Tensor,
         att_shuf: torch.Tensor,
     ) -> float:
         """
-        R3 — Label Randomisation.
+        R3 — Head Permutation (formerly "Label Randomisation").
+
+        Note: this is NOT Adebayo et al.'s data-randomisation test, which
+        retrains the model on shuffled labels. Here only the trained
+        classifier head is column-permuted (no retraining), testing whether
+        the explanation depends on the head's class-to-feature mapping.
 
         Formal definition (Task 2.3 §1.3)
         -----------------------------------
@@ -663,7 +678,7 @@ class RobustnessMetrics:
         φ(f_shuf, x) produced by the model with its classifier head
         column-permuted (output label assignments randomly shuffled):
 
-            LabelRand(φ, x) = 1 − (|ρ(φ_orig, φ_shuf)| + 1) / 2
+            HeadPerm(φ, x) = 1 − (|ρ(φ_orig, φ_shuf)| + 1) / 2
 
         where ρ is the Spearman rank correlation of the two flattened maps.
 
@@ -679,7 +694,7 @@ class RobustnessMetrics:
         is the conventional choice for this family of sanity checks because
         sign-flipped attributions still preserve spatial structure.
 
-        Use ``randomise_classifier_labels(model)`` to produce ``f_shuf``.
+        Use ``permute_classifier_head(model)`` to produce ``f_shuf``.
 
         Parameters
         ----------
@@ -705,6 +720,9 @@ class RobustnessMetrics:
         rho   = _spearman_corr(a, b)
         score = 1.0 - (abs(rho) + 1.0) / 2.0
         return float(score)
+
+    # Backward-compatible name (see the R3 note above)
+    label_randomisation = head_permutation
 
     # ------------------------------------------------------------------
     # Convenience: compute R1, R2, and R3 in a single call
@@ -736,14 +754,14 @@ class RobustnessMetrics:
         dict with keys:
             'max_sensitivity'      — R1, float ≥ 0
             'model_randomisation'  — R2, float in [0, 1]
-            'label_randomisation'  — R3, float in [0, 0.5]
+            'head_permutation'     — R3, float in [0, 0.5]
         """
         return {
             "max_sensitivity":     self.max_sensitivity(
                 explainer, model, image, att_orig
             ),
             "model_randomisation": self.model_randomisation(att_orig, att_rand),
-            "label_randomisation": self.label_randomisation(att_orig, att_shuf),
+            "head_permutation":    self.head_permutation(att_orig, att_shuf),
         }
 
     # ------------------------------------------------------------------

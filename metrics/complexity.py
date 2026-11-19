@@ -12,7 +12,10 @@ patch-level attribution map:
 
 Normalisation convention (§5 of the Task 2.4 spec):
     C1 / C3  →  minmax normalisation before computation
-    C2       →  softmax normalisation (proper probability distribution)
+    C2       →  sum normalisation p = |e| / Σ|e| (the map's own mass
+                distribution). Softmax was used previously; it is strictly
+                positive and nearly flat on [0, 1] maps (exp ranges only over
+                [1, e]), so it compressed every map toward maximal entropy.
 
 All functions accept numpy arrays or torch.Tensor inputs and operate on
 non-negative attribution values.  Signed attributions (e.g. Transformer-LRP)
@@ -165,7 +168,7 @@ def attribution_entropy(attribution_map: np.ndarray) -> dict:
         return {"entropy_raw": log_n, "entropy_norm": 1.0, "n_patches": n}
 
     p = e / total
-    log_p = np.where(p > 0, np.log(p), 0.0)   # convention: 0 · log 0 = 0
+    log_p = np.log(np.where(p > 0, p, 1.0))   # convention: 0 · log 0 = 0
     entropy_raw = float(-np.sum(p * log_p))
     entropy_norm = float(np.clip(entropy_raw / log_n, 0.0, 1.0)) if log_n > 0 else 0.0
 
@@ -329,7 +332,7 @@ class ComplexityMetrics:
     Metric  Normalisation        Rationale
     ======  ==================  ==========================================
     C1      minmax              Scale-invariant; zeroes out low patches
-    C2      softmax             Proper probability distribution
+    C2      sum (|e| / Σ|e|)    The map's own mass distribution
     C3      minmax              Zero-weight for unattributed patches
     ======  ==================  ==========================================
 
@@ -439,7 +442,7 @@ class ComplexityMetrics:
         if total == 0.0:
             return log_n, 1.0
         p = e / total
-        log_p = np.where(p > 0, np.log(p), 0.0)
+        log_p = np.log(np.where(p > 0, p, 1.0))
         entropy_raw = float(-np.sum(p * log_p))
         entropy_norm = (
             float(np.clip(entropy_raw / log_n, 0.0, 1.0)) if log_n > 0 else 0.0
@@ -496,9 +499,9 @@ class ComplexityMetrics:
         e_minmax = self._normalise(e, "minmax")
         gini = self._gini(e_minmax)
 
-        # C2: Entropy — use softmax-normalised map (proper probability distribution)
-        e_softmax = self._normalise(e, "softmax")
-        entropy_raw, entropy_norm = self._entropy(e_softmax)
+        # C2: Entropy of the map's mass distribution p = |e| / Σ|e|
+        # (``_entropy`` sum-normalises; ``e`` is already |e|)
+        entropy_raw, entropy_norm = self._entropy(e)
 
         # C3: EMR — use minmax-normalised map; shared sort for all thresholds
         emr_vals: Dict[float, float] = {}
@@ -663,8 +666,9 @@ def entropy_batch_torch(
     """
     Vectorised entropy for a batch of attribution maps.
 
-    Uses softmax normalisation internally (proper probability distribution
-    for C2).
+    Sum-normalises each map (p = e / Σe, negatives clipped), matching
+    ``ComplexityMetrics`` and ``attribution_entropy``. All-zero maps get
+    entropy log N (normalised 1.0).
 
     Parameters
     ----------
@@ -685,9 +689,9 @@ def entropy_batch_torch(
     e = attributions.view(B, -1).float().clamp(min=0.0)      # (B, N)
     N = e.shape[1]
 
-    e_soft = F.softmax(e, dim=1)                             # (B, N)
-    log_e  = torch.log(e_soft.clamp(min=eps))
-    h = -(e_soft * log_e).sum(dim=1)                         # (B,)
+    total = e.sum(dim=1, keepdim=True)                       # (B, 1)
+    p = torch.where(total > 0, e / total.clamp(min=eps), torch.full_like(e, 1.0 / N))
+    h = -(p * torch.log(p.clamp(min=eps))).sum(dim=1)        # (B,)  0·log0 = 0
 
     if normalise:
         return (h / math.log(N)).clamp(0.0, 1.0)
