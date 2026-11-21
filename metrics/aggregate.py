@@ -113,6 +113,7 @@ def load_per_sample(checkpoint_dir: str | Path) -> pd.DataFrame:
         ids["task_type"] = res.get("task_type", "single")
         for i, (label, m) in enumerate(zip(res["labels"], res["metrics"])):
             rows.append({**ids, "sample_id": i, "label": label, **m})
+        del res
     df = pd.DataFrame(rows)
     df["seed"] = df["seed"].astype("Int64")
     return df

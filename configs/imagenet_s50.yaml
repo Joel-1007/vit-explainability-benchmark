@@ -2,7 +2,7 @@
 # Task 1.2 §5.3 / Task 1.3 §2.3 — ImageNet-S-50
 #
 # 50-class subset of ImageNet-1K with full pixel-level semantic segmentation
-# annotations on val (752 images) and test (739 images).
+# annotations for the 752 validation images. Test masks are held by the authors.
 #
 # Purpose in the benchmark:
 #   Evaluates explanation quality on the model's own pre-training distribution
@@ -13,8 +13,7 @@
 # Paper:     "Large-scale Unsupervised Semantic Segmentation" (TPAMI 2022)
 # License:   Apache 2.0 (repo); ImageNet license applies to images.
 #
-# IMPORTANT: Train annotations are only PARTIALLY labelled.
-#            Use val/ and test/ splits exclusively for localization metrics.
+# Use the published validation masks for local localization metrics.
 
 dataset:        imagenet_s50
 num_classes:    50
@@ -39,7 +38,7 @@ cutmix_alpha:   0.0
 label_smoothing: 0.1
 
 # Localization evaluation
-# Use val/ (752 images) and test/ (739 images) — both have full GT pixel masks.
+# Use validation/ (752 images) with the masks in validation-segmentation/.
 # DO NOT use train/ for localization — annotations are partial.
 localization_split: val    # primary evaluation split
 gt_mask_ext:        .png   # mask file extension in each class subdirectory

@@ -446,6 +446,8 @@ class Phase3Runner:
         checkpoint_dir: str,
         seed:           int = 42,
         max_batches:    Optional[int] = None,
+        *,
+        retain_results: bool = True,
     ) -> Dict[str, Any]:
         """
         Full evaluation matrix with checkpoint-and-resume.
@@ -460,6 +462,9 @@ class Phase3Runner:
         max_batches    : int | None
             If set, each combination processes at most this many batches.
             Useful for dry-runs (e.g. ``max_batches=1``).
+        retain_results : bool
+            Return full results by default. False returns sample counts and
+            releases the tensors after writing each checkpoint.
 
         Returns
         -------
@@ -488,7 +493,7 @@ class Phase3Runner:
                 for exp_name, ExplainerCls in exp_iter:
                     exp_iter.set_description(f"Explainer: {exp_name}")
 
-                    key      = f"{ds_name}-{model_name}-{exp_name}"
+                    key      = self.combination_key(ds_name, model_name, exp_name)
                     ckpt_path = Path(checkpoint_dir) / f"{key}.pkl"
 
                     if self.combination_done(checkpoint_dir, key):
@@ -499,17 +504,7 @@ class Phase3Runner:
                     # Fresh seed + explainer instance per combination
                     torch.manual_seed(seed)
                     try:
-                        explainer = ExplainerCls(
-                            model, patch_size=self.patch_size
-                        )
-                    except Exception as exc:
-                        log.warning(
-                            f"Cannot instantiate {ExplainerCls.__name__} "
-                            f"for {model_name}: {exc}  — skipping."
-                        )
-                        continue
-
-                    try:
+                        explainer = ExplainerCls(model, patch_size=self.patch_size)
                         results = self._run_combination(
                             key, explainer, loader, ckpt_path, max_batches,
                             names=(ds_name, model_name, exp_name),
@@ -522,7 +517,8 @@ class Phase3Runner:
                         log.warning(f"Unsupported {key}: {exc}")
                         print(f"  ✗  Unsupported: {key}")
                         continue
-                    all_results[key] = results
+                    all_results[key] = results if retain_results else {"n_samples": results["n_samples"]}
+                    del results
 
         return all_results
 
@@ -684,9 +680,8 @@ class Phase3Runner:
             p.name for p in Path(checkpoint_dir).glob("*.pkl")
         )
 
-    def combination_key(
-        self, ds_name: str, model_name: str, exp_name: str
-    ) -> str:
+    @staticmethod
+    def combination_key(ds_name: str, model_name: str, exp_name: str) -> str:
         """Canonical key string for one combination."""
         return f"{ds_name}-{model_name}-{exp_name}"
 

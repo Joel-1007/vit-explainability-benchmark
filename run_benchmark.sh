@@ -7,11 +7,11 @@
 set -euo pipefail
 
 SEED=42
-CHECKPOINT_DIR="results/phase3"
+CHECKPOINT_DIR=${CHECKPOINT_DIR:-"results/phase3"}
 DATA_ROOT=${DATA_ROOT:-"/data"}
 # Fine-tuned checkpoints: {model}_{dataset}.pth or {model}_ft_{dataset}_*.pth
 WEIGHTS_DIR=${WEIGHTS_DIR:-"checkpoints"}
-OUTPUT_DIR="results/phase4"
+OUTPUT_DIR=${OUTPUT_DIR:-"results/phase4"}
 
 echo "================================================="
 echo "  ViT Explainability Benchmark - Full Pipeline   "

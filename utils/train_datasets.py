@@ -49,6 +49,7 @@ from utils.tasks import MULTI, SINGLE, TASK_TYPE
 
 HOLDOUT_FRACTION = 0.10
 SPLIT_SEED = 0           # fixed: identical splits for every fine-tuning seed
+NIH_LABEL_FILES = ("Data_Entry_2017_v2.csv", "Data_Entry_2017.csv", "Data_Entry_2017_v2020.csv")
 
 
 def _holdout(groups: Sequence, fraction: float = HOLDOUT_FRACTION,
@@ -158,10 +159,10 @@ def voc_items(root: Path) -> Tuple[List[tuple], List[tuple]]:
 def nih_items(root: Path) -> Tuple[List[tuple], List[tuple]]:
     import pandas as pd
 
-    entry = next((root / n for n in ("Data_Entry_2017_v2.csv", "Data_Entry_2017.csv")
+    entry = next((root / n for n in NIH_LABEL_FILES
                   if (root / n).exists()), None)
     if entry is None:
-        raise FileNotFoundError(f"{root}: Data_Entry_2017(_v2).csv not found")
+        raise FileNotFoundError(f"{root}: expected one of {', '.join(NIH_LABEL_FILES)}")
     df = pd.read_csv(entry, usecols=["Image Index", "Finding Labels"])
     labels = dict(zip(df["Image Index"], df["Finding Labels"]))
     names = _ids(root / "train_val_list.txt")

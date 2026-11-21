@@ -4,7 +4,7 @@
 # REPLACES CheXpert — CheXpert has no spatial GT annotations (no bounding
 # boxes or segmentation masks), making it incompatible with localization
 # metrics L1–L4.  NIH ChestX-ray14 provides GT bounding boxes for 8 pathology
-# classes in BBox_List_2017.csv (984-image localization subset).
+# classes in BBox_List_2017.csv (984 boxes across 880 images).
 #
 # Full fine-tune; 14 pathology labels (8 have GT bounding boxes).
 # Use per-class metric reporting due to severe class imbalance.
@@ -37,7 +37,7 @@ label_smoothing: 0.0          # multi-label: no smoothing (training/loss.py)
 # BCEWithLogitsLoss is used instead of CrossEntropyLoss (multi-label pathology).
 class_weighted_loss: true    # pos_weight = N_neg/N_pos per class from the training split
 
-# Localization evaluation — only the BBox subset (984 images, 8 classes)
+# Localization evaluation — the BBox subset (880 images, 8 classes)
 # GT file: BBox_List_2017.csv
 # Evaluation: box-level IoU + pointing game (NOT pixel IoU — no masks available)
 localization_gt:   BBox_List_2017.csv

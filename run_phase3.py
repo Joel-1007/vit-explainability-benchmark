@@ -47,18 +47,20 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import hashlib
 import json
 import logging
 import os
 import pickle
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict
 
 import torch
 import torch.nn as nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Subset
 
 import numpy as np
 
@@ -236,8 +238,29 @@ def load_finetuned_model(
 # Run metadata (saved alongside checkpoints for reproducibility)
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
-    """Save run configuration as JSON for reproducibility."""
+def _save_run_metadata(args: argparse.Namespace, device: torch.device,
+                       datasets: Dict[str, DataLoader], weights: dict) -> None:
+    """Bind a checkpoint directory to one evaluation protocol."""
+    splits = {}
+    for name, loader in datasets.items():
+        dataset = loader.dataset
+        if isinstance(dataset, Subset):
+            samples = (dataset.dataset.samples[i] for i in dataset.indices)
+        else:
+            samples = iter(dataset.samples)
+        digest = hashlib.sha256()
+        for sample in samples:
+            digest.update(repr(sample).encode("utf-8") + b"\n")
+        splits[name] = digest.hexdigest()
+
+    weight_files = {}
+    for key, path in weights.items():
+        if path is None:
+            weight_files[key] = None
+        else:
+            stat = path.stat()
+            weight_files[key] = [str(path.resolve()), stat.st_size, stat.st_mtime_ns]
+
     meta = {
         "timestamp": datetime.datetime.now().isoformat(),
         "command": " ".join(sys.argv),
@@ -245,18 +268,27 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
         "torch_version": torch.__version__,
         "cuda_available": torch.cuda.is_available(),
         "cuda_device": torch.cuda.get_device_name(0) if torch.cuda.is_available() else None,
+        "resume": {
+            "version": 1,
+            "device": str(device),
+            "device_name": torch.cuda.get_device_name(device) if device.type == "cuda" else None,
+            "torch_version": str(torch.__version__),
+            "splits": splits,
+            "weights": weight_files,
+        },
         "args": {
-            "data_root": args.data_root,
+            "data_root": str(Path(args.data_root).resolve()),
             "models": args.models,
             "explainers": args.explainers,
+            "rise_masks": args.rise_masks,
             "datasets": args.datasets,
-            "checkpoint_dir": args.checkpoint_dir,
+            "checkpoint_dir": str(Path(args.checkpoint_dir).resolve()),
             "seed": args.seed,
             "max_batches": args.max_batches,
             "max_samples": args.max_samples,
             "norm_mode": args.norm_mode,
             "patch_size": args.patch_size,
-            "weights_dir": args.weights_dir,
+            "weights_dir": str(Path(args.weights_dir).resolve()) if args.weights_dir else None,
             "finetune_seeds": args.finetune_seeds,
             "allow_random_head": args.allow_random_head,
             "metrics": args.metrics,
@@ -268,10 +300,18 @@ def _save_run_metadata(args: argparse.Namespace, checkpoint_dir: str) -> None:
             "dry_run": args.dry_run,
         },
     }
-    meta_path = Path(checkpoint_dir) / "run_metadata.json"
+    output = Path(args.checkpoint_dir)
+    meta_path = output / "run_metadata.json"
     meta_path.parent.mkdir(parents=True, exist_ok=True)
-    with open(meta_path, "w") as f:
-        json.dump(meta, f, indent=2)
+    if any(output.glob("*.pkl")) or any(output.glob(f"*{Phase3Runner.UNSUPPORTED_SUFFIX}")):
+        previous = json.loads(meta_path.read_text(encoding="utf-8")) if meta_path.is_file() else {}
+        if previous.get("args") != meta["args"] or previous.get("resume") != meta["resume"]:
+            raise ValueError(f"{output} contains checkpoints from a different or unverified run. "
+                             "Choose a new --checkpoint-dir.")
+        return
+    pending = meta_path.with_suffix(".json.tmp")
+    pending.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+    pending.replace(meta_path)
     log.info(f"Run metadata saved to {meta_path}")
 
 
@@ -299,6 +339,7 @@ def _generate_summary_csv(checkpoint_dir: str) -> None:
                 "norm_mode": data.get("norm_mode", "?"),
                 "checkpoint_file": pkl_path.name,
             })
+            del data
         except Exception as e:
             log.warning(f"Could not read checkpoint {pkl_path.name}: {e}")
 
@@ -360,6 +401,8 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="DATASET",
         help=f"Datasets to evaluate. Default: all ({', '.join(DATASET_CLASSES.keys())})",
     )
+
+    p.add_argument("--rise-masks", type=int, help="Override the default RISE mask count for pilots")
 
     # Execution
     p.add_argument(
@@ -458,6 +501,11 @@ def build_parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> None:
     parser = build_parser()
     args = parser.parse_args(argv)
+    args.data_root = str(Path(args.data_root).resolve())
+    if args.rise_masks is not None and args.rise_masks < 1:
+        parser.error("--rise-masks must be at least 1")
+    if args.max_batches is not None and args.max_batches < 1:
+        parser.error("--max-batches must be at least 1")
 
     # ── Ablation shortcut (before metadata is saved) ─────────────────────
     if args.ablations:
@@ -504,13 +552,12 @@ def main(argv: list[str] | None = None) -> None:
     print(banner)
     log.info("Phase 3 evaluation starting...")
 
-    # ── Save run metadata ────────────────────────────────────────────────
-    _save_run_metadata(args, args.checkpoint_dir)
-
     explainers = {
         name: cls for name, cls in ALL_EXPLAINERS.items()
         if name in args.explainers
     }
+    if args.rise_masks is not None and "rise" in explainers:
+        explainers["rise"] = partial(explainers["rise"], n_masks=args.rise_masks)
 
     # ── Step 1: Load datasets ────────────────────────────────────────────
     log.info("[1/2] Loading datasets...")
@@ -523,16 +570,44 @@ def main(argv: list[str] | None = None) -> None:
                 max_samples=args.max_samples,
                 num_workers=args.num_workers,
             )
+            if not len(loader.dataset):
+                raise ValueError("evaluation split is empty")
             datasets[ds_name] = loader
             log.info(f"  ✓ {ds_name}: {len(loader.dataset)} samples, {len(loader)} batches")
         except Exception as e:
             log.error(f"  ✗ Failed to load {ds_name}: {e}")
 
-    if not datasets:
-        log.error("No datasets loaded successfully. Aborting.")
+    missing_datasets = set(args.datasets) - datasets.keys()
+    if missing_datasets:
+        log.error("Missing requested datasets: %s", ", ".join(sorted(missing_datasets)))
         sys.exit(1)
 
-    total_combos = len(datasets) * len(args.models) * len(explainers)
+    seeds = args.finetune_seeds or [None]
+    runs = [(m, sd) for m in args.models for sd in seeds]
+    model_names = {(m, sd): m if sd is None else f"{m}{SEED_TAG}{sd}" for m, sd in runs}
+    weights = {f"{ds_name}/{model_names[m, sd]}": find_weights(args.weights_dir, m, ds_name, sd)
+               for ds_name in datasets for m, sd in runs}
+    missing_weights = [key for key, path in weights.items() if path is None]
+    if missing_weights and not args.allow_random_head:
+        log.error("Missing fine-tuned weights: %s", ", ".join(missing_weights))
+        sys.exit(1)
+
+    expected_keys = {Phase3Runner.combination_key(ds_name, name, exp)
+                     for ds_name in datasets for name in model_names.values() for exp in explainers}
+    output = Path(args.checkpoint_dir)
+    checkpoints = {p.stem for p in output.glob("*.pkl")}
+    unsupported = {p.name.removesuffix(Phase3Runner.UNSUPPORTED_SUFFIX)
+                   for p in output.glob(f"*{Phase3Runner.UNSUPPORTED_SUFFIX}")}
+    if (checkpoints | unsupported) - expected_keys or checkpoints & unsupported:
+        log.error("Unexpected or conflicting results in %s. Choose a new --checkpoint-dir.", output)
+        sys.exit(1)
+    try:
+        _save_run_metadata(args, device, datasets, weights)
+    except (OSError, ValueError) as exc:
+        log.error("Cannot resume evaluation: %s", exc)
+        sys.exit(1)
+
+    total_combos = len(expected_keys)
     log.info(
         f"  Total combinations: {len(datasets)} datasets × "
         f"{len(args.models)} models × {len(explainers)} explainers = {total_combos}"
@@ -554,17 +629,17 @@ def main(argv: list[str] | None = None) -> None:
         seed=args.seed,
     )
 
-    seeds = args.finetune_seeds or [None]
-    runs = [(m, sd) for m in args.models for sd in seeds]
     for ds_name, loader in datasets.items():
         for base_model, ft_seed in runs:
             # Checkpoint keys carry the seed: "cub200-vit_b16@seed1-gradcam"
-            model_name = base_model if ft_seed is None else f"{base_model}{SEED_TAG}{ft_seed}"
-            keys = [f"{ds_name}-{model_name}-{e}" for e in explainers]
+            model_name = model_names[base_model, ft_seed]
+            keys = [Phase3Runner.combination_key(ds_name, model_name, e) for e in explainers]
             if all(Phase3Runner.combination_done(args.checkpoint_dir, k) for k in keys):
                 log.info(f"  ↩ {ds_name}/{model_name}: all explainers done — skipping")
                 continue
             try:
+                if weights[f"{ds_name}/{model_name}"] is None:
+                    torch.manual_seed(args.seed)
                 model = load_finetuned_model(
                     base_model, ds_name, args.weights_dir, args.allow_random_head,
                     seed=ft_seed,
@@ -587,6 +662,7 @@ def main(argv: list[str] | None = None) -> None:
                 checkpoint_dir=args.checkpoint_dir,
                 seed=args.seed,
                 max_batches=args.max_batches,
+                retain_results=False,
             ))
             del model, runner
             if device.type == "cuda":
@@ -594,6 +670,11 @@ def main(argv: list[str] | None = None) -> None:
 
     elapsed = time.time() - t0
     n_combos = len(results)
+    missing_combinations = sorted(k for k in expected_keys
+                                  if not Phase3Runner.combination_done(args.checkpoint_dir, k))
+    if missing_combinations:
+        log.error("Missing requested combinations: %s", ", ".join(missing_combinations))
+        sys.exit(1)
 
     # ── Generate summary CSV from all checkpoints ────────────────────────
     _generate_summary_csv(args.checkpoint_dir)

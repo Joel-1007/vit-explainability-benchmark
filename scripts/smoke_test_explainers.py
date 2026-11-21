@@ -261,16 +261,34 @@ def main(argv=None) -> int:
     p.add_argument("--num-classes", type=int, default=10,
                    help="Head size when no fine-tuned checkpoint is given (random head)")
     p.add_argument("--weights-dir", default=None)
-    p.add_argument("--dataset", default=None, help="With --weights-dir: evaluate fine-tuned checkpoints")
+    from utils.eval_datasets import DATASET_CLASSES, build_eval_loader
+    p.add_argument("--dataset", choices=DATASET_CLASSES,
+                   help="Dataset for smoke images and fine-tuned checkpoints")
+    p.add_argument("--finetune-seed", type=int, help="Seed of the fine-tuned checkpoints")
     p.add_argument("--device", default=None)
     p.add_argument("--out", default="results/smoke")
     p.add_argument("--tiny", action="store_true", help=argparse.SUPPRESS)   # tests: small random models
     args = p.parse_args(argv)
-    args.trained_head = bool(args.weights_dir and args.dataset)
+    if args.weights_dir and not args.dataset:
+        p.error("--weights-dir requires --dataset")
+    if args.finetune_seed is not None and not args.weights_dir:
+        p.error("--finetune-seed requires --weights-dir")
+    if args.n_images < 1:
+        p.error("--n-images must be at least 1")
+    args.trained_head = bool(args.weights_dir)
 
     device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    if args.dataset and args.data_root and not args.images:
+        loader = build_eval_loader(args.dataset, args.data_root, batch_size=args.n_images,
+                                   max_samples=args.n_images, num_workers=0)
+        if not len(loader.dataset):
+            p.error(f"{args.dataset}: evaluation split is empty")
+        images = list(next(iter(loader))[0])
+    else:
+        if args.dataset and not args.images:
+            p.error("--dataset requires --data-root or explicit --images")
+        images = load_images(args.images, args.data_root, args.n_images)
     os.makedirs(args.out, exist_ok=True)
-    images = load_images(args.images, args.data_root, args.n_images)
     explainers = {n: all_explainers[n] for n in args.explainers}
     all_rows, summary = [], {}
     for name in args.models:
@@ -278,7 +296,8 @@ def main(argv=None) -> int:
         try:
             if args.weights_dir and args.dataset:
                 import run_phase3 as rp
-                model = rp.load_finetuned_model(name, args.dataset, args.weights_dir)
+                model = rp.load_finetuned_model(name, args.dataset, args.weights_dir,
+                                               seed=args.finetune_seed)
             else:
                 model = load_model(name, num_classes=args.num_classes, pretrained=not args.tiny)
         except Exception as ex:

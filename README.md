@@ -343,7 +343,7 @@ uv run python -c "import torch; print(torch.cuda.is_available()); print(torch.cu
 
 ### 4. Set the Dataset Path
 
-See [Dataset sources and acquisition notes](docs/dataset_sources.md) for the complete publisher links, required annotation companions, and the distinction between the guide's CheXpert plan and this repository's current NIH configuration. For commands, options, prerequisites, and download behavior, see [Using the dataset download script](docs/dataset_download_guide.md).
+See the [server dataset setup guide](docs/server_dataset_setup.md) for publisher links, download and extraction instructions, and the files required by the current NIH-based benchmark. See [Using the dataset download script](docs/dataset_download_guide.md) for downloader options and [Dataset sources](docs/dataset_sources.md) for background on the separate CheXpert protocol.
 
 Point `DATA_ROOT` to where the datasets live on the cluster's shared storage:
 
@@ -356,7 +356,7 @@ The benchmark expects the following structure under `$DATA_ROOT`:
 | Dataset | Expected Path |
 |---------|---------------|
 | CUB-200-2011 | `$DATA_ROOT/cub200/` |
-| PASCAL VOC | `$DATA_ROOT/voc/` |
+| PASCAL VOC | `$DATA_ROOT/voc2012/` |
 | ImageNet-S50 | `$DATA_ROOT/imagenet_s50/` |
 | NIH ChestX-ray | `$DATA_ROOT/nih_chestxray/` |
 

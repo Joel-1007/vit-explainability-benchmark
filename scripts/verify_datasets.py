@@ -36,14 +36,14 @@ Requirements
 from __future__ import annotations
 
 import argparse
-import os
 import sys
 import random
 import logging
 from pathlib import Path
-from typing import Callable
 
 import numpy as np
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -85,9 +85,10 @@ def verify_cub200(root: str) -> None:
     root = Path(root)
 
     # Step 1 — required files exist
-    for fname in ["images.txt", "train_test_split.txt", "bounding_boxes.txt",
-                  "image_class_labels.txt"]:
-        _check(DS, f"File exists: {fname}", (root / fname).exists())
+    required = [
+        _check(DS, f"File exists: {fname}", (root / fname).is_file())
+        for fname in ("images.txt", "train_test_split.txt", "bounding_boxes.txt", "image_class_labels.txt")
+    ]
 
     _check(DS, "Directory: images/",        (root / "images").is_dir())
     _check(DS, "Directory: segmentations/", (root / "segmentations").is_dir())
@@ -97,6 +98,8 @@ def verify_cub200(root: str) -> None:
     n_masks  = sum(1 for _ in (root / "segmentations").rglob("*.png"))
     _check(DS, f"Image count = 11,788", n_images == 11788, f"found {n_images}")
     _check(DS, f"Mask count  = 11,788", n_masks  == 11788, f"found {n_masks}")
+    if not all(required):
+        return
 
     # Step 3 — split counts
     try:
@@ -134,22 +137,25 @@ def verify_cub200(root: str) -> None:
         # Step 5 — readability + mask pixel values (sample 100)
         from PIL import Image
 
-        sample = images_df.sample(100, random_state=42)
+        sample = images_df.sample(min(100, len(images_df)), random_state=42)
         corrupt_imgs, corrupt_masks = [], []
 
         for _, row in sample.iterrows():
             img_path  = root / "images" / row["filename"]
             mask_path = root / "segmentations" / row["filename"].replace(".jpg", ".png")
+            image_size = None
             try:
-                img = Image.open(img_path).convert("RGB")
-                assert img.size[0] > 0
+                with Image.open(img_path) as img:
+                    img.load()
+                    image_size = img.size
             except Exception as e:
                 corrupt_imgs.append(str(e))
             try:
-                mask = np.array(Image.open(mask_path))
-                unique = set(np.unique(mask))
-                # CUB masks are binary: 0=background, 255=foreground
-                assert unique.issubset({0, 255}), f"unexpected values: {unique - {0,255}}"
+                with Image.open(mask_path) as seg:
+                    if image_size is not None and seg.size != image_size:
+                        raise ValueError("mask and image dimensions differ")
+                    if not np.any(np.asarray(seg.convert("L")) >= 128):
+                        raise ValueError("mask has no foreground")
             except Exception as e:
                 corrupt_masks.append(str(e))
 
@@ -157,18 +163,8 @@ def verify_cub200(root: str) -> None:
                "; ".join(corrupt_imgs[:3]))
         _check(DS, "Sample 100: corrupt masks   = 0", len(corrupt_masks) == 0,
                "; ".join(corrupt_masks[:3]))
-        _check(DS, "Sample 100: mask values ∈ {0, 255}", len(corrupt_masks) == 0)
-
-        # Step 6 — val split creation check
-        val_csv = Path("cub_val_ids.csv")
-        if val_csv.exists():
-            _check(DS, "Val split CSV (cub_val_ids.csv) already exists", True)
-        else:
-            _warn(DS, "cub_val_ids.csv not found",
-                  "Run: python scripts/create_cub_val_split.py --root <CUB_ROOT>")
-
-    except ImportError:
-        log.error("  pandas not installed.  pip install pandas")
+    except (ImportError, OSError, ValueError, KeyError) as exc:
+        _check(DS, "CUB metadata can be read", False, str(exc))
 
 
 # ---------------------------------------------------------------------------
@@ -183,8 +179,8 @@ def verify_pascal_voc(root: str) -> None:
 
     root = Path(root)
 
-    for dname in ["JPEGImages", "SegmentationClass", "SegmentationObject",
-                  "Annotations", "ImageSets/Segmentation"]:
+    for dname in ["JPEGImages", "SegmentationClass",
+                  "Annotations", "ImageSets/Segmentation", "ImageSets/Main"]:
         _check(DS, f"Directory: {dname}/", (root / dname).is_dir())
 
     train_file = root / "ImageSets" / "Segmentation" / "train.txt"
@@ -208,6 +204,17 @@ def verify_pascal_voc(root: str) -> None:
     overlap = set(train_ids) & set(val_ids)
     _check(DS, "No train/val overlap", len(overlap) == 0,
            f"{len(overlap)} overlapping IDs" if overlap else "")
+
+    from utils.train_datasets import voc_items
+
+    try:
+        train, val = voc_items(root)
+        missing = [path for path, *_ in train + val if not path.is_file()]
+        _check(DS, "Fine-tuning and validation splits load and have all JPEGs",
+               bool(train and val) and not missing,
+               f"{len(train)} train, {len(val)} validation, {len(missing)} missing JPEGs")
+    except (OSError, ValueError, AttributeError, SyntaxError) as exc:
+        _check(DS, "VOC Main splits and XML annotations can be read", False, str(exc))
 
     # File existence
     missing_imgs, missing_masks = [], []
@@ -250,6 +257,9 @@ def verify_pascal_voc(root: str) -> None:
 # ---------------------------------------------------------------------------
 
 def verify_imagenet_s50(root: str) -> None:
+    from PIL import Image
+    from utils.eval_datasets import ImageNetS50Eval
+
     DS = "ImgNet-S50"
     log.info(f"\n{'='*60}")
     log.info(f"[{DS}] Verifying: {root}")
@@ -257,55 +267,43 @@ def verify_imagenet_s50(root: str) -> None:
 
     root = Path(root)
 
-    for split in ["validation", "test"]:
-        _check(DS, f"Directory: {split}/", (root / split).is_dir())
-
-    # Count val and test images + masks
-    for split, expected_n in [("validation", 752), ("test", 739)]:
+    split_classes = {}
+    split_images = {}
+    for split, expected_n in [("train", 64431), ("validation", 752)]:
         split_dir = root / split
-        if not split_dir.is_dir():
-            continue
-        imgs  = list(split_dir.rglob("*.JPEG"))
-        masks = list(split_dir.rglob("*.png"))
-        _check(DS, f"{split}: image count = {expected_n}", len(imgs)  == expected_n,
-               f"found {len(imgs)}")
-        _check(DS, f"{split}: mask  count = {expected_n}", len(masks) == expected_n,
-               f"found {len(masks)}")
-        _check(DS, f"{split}: image count == mask count",  len(imgs)  == len(masks),
-               f"imgs={len(imgs)}, masks={len(masks)}")
+        folders = sorted(p for p in split_dir.iterdir() if p.is_dir()) if split_dir.is_dir() else []
+        images_by_class = {p.name: sorted(f for f in p.glob("*.JPEG") if f.is_file()) for p in folders}
+        images = [image for paths in images_by_class.values() for image in paths]
+        split_classes[split] = set(images_by_class)
+        split_images[split] = images
+        _check(DS, f"{split}: 50 populated class subdirectories",
+               len(images_by_class) == 50 and all(images_by_class.values()))
+        _check(DS, f"{split}: image count = {expected_n}", len(images) == expected_n,
+               f"found {len(images)}")
+    _check(DS, "Training and validation class directories match",
+           split_classes["train"] == split_classes["validation"])
+    overlap = {p.name for p in split_images["train"]} & {p.name for p in split_images["validation"]}
+    _check(DS, "Training and validation image IDs are disjoint", not overlap,
+           f"{len(overlap)} overlapping IDs")
 
-    # Class directory count for validation
-    val_dir = root / "validation"
-    if val_dir.is_dir():
-        n_classes = sum(1 for p in val_dir.iterdir() if p.is_dir())
-        _check(DS, "val: 50 class subdirectories", n_classes == 50,
-               f"found {n_classes}")
-
-    # Mask readability + non-zero foreground (sample 50)
-    from PIL import Image
-
-    val_imgs  = sorted((root / "validation").rglob("*.JPEG")) if (root / "validation").is_dir() else []
-    val_masks = sorted((root / "validation").rglob("*.png"))  if (root / "validation").is_dir() else []
-
-    if val_imgs and len(val_imgs) == len(val_masks):
-        pairs  = list(zip(val_imgs, val_masks))
-        sample = random.sample(pairs, min(50, len(pairs)))
-        corrupt = []
-
-        for img_path, mask_path in sample:
-            try:
-                img  = Image.open(img_path).convert("RGB")
-                mask = np.array(Image.open(mask_path))
-                assert img.size[0] > 0
-                assert mask.ndim in [2, 3]
-                assert np.any(mask > 0), "Mask is entirely background (all zeros)"
-            except Exception as e:
-                corrupt.append(f"{img_path.name}: {e}")
-
-        _check(DS, "Sample 50: 0 corrupt pairs, non-empty masks", len(corrupt) == 0,
-               "; ".join(corrupt[:3]))
-
-    _warn(DS, "train/ annotations are partial — use val/ and test/ for localization metrics ONLY")
+    bad_pairs = []
+    for image in split_images["validation"]:
+        mask = ImageNetS50Eval.mask_path(image, root / "validation-segmentation")
+        try:
+            with Image.open(image) as img, Image.open(mask) as seg:
+                if img.size != seg.size:
+                    raise ValueError(f"image {img.size}, mask {seg.size}")
+                img.load()
+                raw = np.asarray(seg, dtype=np.int64)
+                ids = raw[..., 0] + 256 * raw[..., 1] if raw.ndim == 3 and raw.shape[-1] >= 2 else raw
+                if ids.ndim != 2 or not np.isin(ids, [*range(51), 1000]).all():
+                    raise ValueError("invalid ImageNet-S mask encoding")
+                if not ((ids > 0) & (ids != 1000)).any():
+                    raise ValueError("no foreground pixels")
+        except (OSError, ValueError) as exc:
+            bad_pairs.append(f"{image.name}: {exc}")
+    _check(DS, "All validation images have readable, aligned masks with foreground",
+           not bad_pairs, f"{len(bad_pairs)} invalid pairs. " + "; ".join(bad_pairs[:3]))
 
 
 # ---------------------------------------------------------------------------
@@ -313,6 +311,9 @@ def verify_imagenet_s50(root: str) -> None:
 # ---------------------------------------------------------------------------
 
 def verify_nih_chestxray(root: str) -> None:
+    from utils.eval_datasets import NIHBBoxEval, nih_patient_id
+    from utils.train_datasets import NIH_LABEL_FILES, nih_items
+
     DS = "NIH-CXR14"
     log.info(f"\n{'='*60}")
     log.info(f"[{DS}] Verifying: {root}")
@@ -321,14 +322,20 @@ def verify_nih_chestxray(root: str) -> None:
     root = Path(root)
 
     # Required files
-    for fname in ["BBox_List_2017.csv", "Data_Entry_2017_v2.csv",
-                  "train_val_list.txt", "test_list.txt"]:
-        _check(DS, f"File exists: {fname}", (root / fname).exists())
+    required = [
+        _check(DS, f"File exists: {fname}", (root / fname).is_file())
+        for fname in ("BBox_List_2017.csv", "train_val_list.txt", "test_list.txt")
+    ]
+    required.append(_check(DS, "Image-label CSV exists",
+                           any((root / fname).is_file() for fname in NIH_LABEL_FILES),
+                           ", ".join(NIH_LABEL_FILES)))
 
     _check(DS, "Directory: images/", (root / "images").is_dir())
 
     n_images = sum(1 for _ in (root / "images").glob("*.png")) if (root / "images").is_dir() else 0
     _check(DS, "Image count = 112,120", n_images == 112120, f"found {n_images}")
+    if not all(required):
+        return
 
     try:
         import pandas as pd
@@ -342,8 +349,9 @@ def verify_nih_chestxray(root: str) -> None:
             "Mass", "Nodule", "Pneumonia", "Pneumothorax"
         ])
 
-        _check(DS, f"BBox unique images ~ 984", 900 <= n_bbox_unique <= 1000,
-               f"found {n_bbox_unique}")
+        _check(DS, "BBox contains 984 boxes on 880 unique images",
+               len(bbox_df) == 984 and n_bbox_unique == 880,
+               f"found {len(bbox_df)} boxes on {n_bbox_unique} images")
         _check(DS, "BBox covers exactly 8 pathology classes",
                found_classes == expected_classes,
                f"found: {found_classes}")
@@ -370,16 +378,23 @@ def verify_nih_chestxray(root: str) -> None:
                f"{len(train_val & test_set)} overlap")
 
         # Patient-level separation (filenames are <patient>_<follow-up>.png)
-        pid = lambda name: name.split("_", 1)[0]          # noqa: E731
-        train_pat = {pid(n) for n in train_val}
-        test_pat  = {pid(n) for n in test_set}
-        bbox_pat  = {pid(n) for n in bbox_df["Image Index"].unique()}
+        train_pat = {nih_patient_id(n) for n in train_val}
+        test_pat = {nih_patient_id(n) for n in test_set}
         _check(DS, "No patient in both train_val and test lists",
                len(train_pat & test_pat) == 0, f"{len(train_pat & test_pat)} patients overlap")
-        _check(DS, "No BBox (localization) patient in train_val list",
-               len(bbox_pat & train_pat) == 0,
-               f"{len(bbox_pat & train_pat)} patients overlap — utils/eval_datasets.py "
-               "excludes them from evaluation")
+        missing = [name for name in train_val | test_set if not (root / "images" / name).is_file()]
+        _check(DS, "All split images exist on disk", not missing, f"{len(missing)} missing")
+
+        train, val = nih_items(root)
+        evaluation = NIHBBoxEval(root, require_split=True)
+        patient_sets = [
+            {nih_patient_id(item[0]) for item in split}
+            for split in (train, val, evaluation.samples)
+        ]
+        train_ids, val_ids, eval_ids = patient_sets
+        _check(DS, "Effective train, validation and localization splits are nonempty and patient-disjoint",
+               all(patient_sets) and not (train_ids & val_ids or train_ids & eval_ids or val_ids & eval_ids),
+               f"{len(train)} train, {len(val)} validation, {len(evaluation)} localization units")
 
         # Readability + size (sample 50 from bbox subset)
         from PIL import Image
@@ -422,8 +437,8 @@ def verify_nih_chestxray(root: str) -> None:
         _warn(DS, "Use per-class metric reporting due to severe class imbalance")
         _warn(DS, "Only box-level IoU / pointing game available — no pixel masks")
 
-    except ImportError:
-        log.error("  pandas not installed.  pip install pandas")
+    except (ImportError, OSError, ValueError, KeyError) as exc:
+        _check(DS, "NIH metadata and split files can be read by the project loaders", False, str(exc))
 
 
 # ---------------------------------------------------------------------------

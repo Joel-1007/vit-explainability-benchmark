@@ -235,9 +235,7 @@ class ImageNetS50Eval(_MaskedDataset):
         self.samples, missing = [], []
         for label, wnid in enumerate(classes):
             for img_path in sorted((split_dir / wnid).glob("*.JPEG")):
-                mask_path = img_path.with_suffix(".png")
-                if not mask_path.exists():
-                    mask_path = seg_dir / wnid / f"{img_path.stem}.png"
+                mask_path = self.mask_path(img_path, seg_dir)
                 if mask_path.exists():
                     self.samples.append((img_path, mask_path, label))
                 else:
@@ -247,6 +245,13 @@ class ImageNetS50Eval(_MaskedDataset):
                 f"ImageNet-S50: {len(missing)} images have no mask "
                 f"(e.g. {missing[:3]}). Looked next to each image and in {seg_dir}/."
             )
+
+    @staticmethod
+    def mask_path(image: Path, segmentation_dir: Path) -> Path:
+        adjacent = image.with_suffix(".png")
+        if adjacent.is_file():
+            return adjacent
+        return segmentation_dir / image.parent.name / adjacent.name
 
     def _load(self, idx):
         img_path, mask_path, label = self.samples[idx]
@@ -363,7 +368,8 @@ def build_eval_loader(
 ) -> DataLoader:
     """DataLoader yielding ``(images, labels, gt_masks)`` for dataset ``name``."""
     subdir, cls = DATASET_CLASSES[name]
-    dataset: Dataset = cls(Path(data_root) / subdir)
+    root = Path(data_root) / subdir
+    dataset: Dataset = NIHBBoxEval(root, require_split=True) if cls is NIHBBoxEval else cls(root)
     if max_samples is not None and max_samples < len(dataset):
         dataset = Subset(dataset, spread_indices(len(dataset), max_samples))
     return DataLoader(

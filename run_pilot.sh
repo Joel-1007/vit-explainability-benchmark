@@ -29,17 +29,24 @@ set -euo pipefail
 SEED=42
 MAX_BATCHES=7                   # 7 batches × 8 images = ~50 images
 RISE_N_MASKS=100                # Reduced from 4000 (40× faster)
-CHECKPOINT_DIR="results/pilot"
-OUTPUT_DIR="results/pilot/phase4"
+CHECKPOINT_DIR=${PILOT_CHECKPOINT_DIR:-"results/pilot"}
+OUTPUT_DIR="$CHECKPOINT_DIR/phase4"
 DATA_ROOT=${DATA_ROOT:-"/data"}
 # Fine-tuned checkpoints. If unset, the pilot uses random heads: this tests
 # the pipeline only — the numbers are meaningless.
 WEIGHTS_DIR=${WEIGHTS_DIR:-""}
+SMOKE_ARGS=(--dataset cub200)
 if [ -n "$WEIGHTS_DIR" ]; then
     WEIGHT_ARGS=(--weights-dir "$WEIGHTS_DIR")
+    SMOKE_ARGS+=(--weights-dir "$WEIGHTS_DIR")
+    if [ -n "${PILOT_FINETUNE_SEED:-}" ]; then
+        WEIGHT_ARGS+=(--finetune-seeds "$PILOT_FINETUNE_SEED")
+        SMOKE_ARGS+=(--finetune-seed "$PILOT_FINETUNE_SEED")
+    fi
 else
     WEIGHT_ARGS=(--allow-random-head)
 fi
+read -r -a SMOKE_MODELS <<< "${PILOT_SMOKE_MODELS:-vit_b16}"
 SKIP_TESTS=${1:-""}
 
 echo ""
@@ -86,16 +93,17 @@ echo "[3/4] Verifying dataset access..."
 if [ -d "$DATA_ROOT/cub200" ]; then
     echo "  ✅ CUB-200-2011 found at $DATA_ROOT/cub200"
 else
-    echo "  ⚠️  WARNING: $DATA_ROOT/cub200 not found."
+    echo "  ERROR: $DATA_ROOT/cub200 not found." >&2
     echo "       Set DATA_ROOT to the correct path, e.g.:"
     echo "         export DATA_ROOT=/scratch/\$USER/datasets"
-    echo "       Continuing anyway (runner will error if datasets missing)."
+    exit 1
 fi
 
 # --- Step 3b: Real-model explainer smoke test -----------------
 echo ""
-echo "[3b] Explainer smoke test (all models x explainers, real weights) ..."
+echo "[3b] Explainer smoke test on CUB images ..."
 uv run python scripts/smoke_test_explainers.py \
+    --models "${SMOKE_MODELS[@]}" "${SMOKE_ARGS[@]}" \
     --data-root "$DATA_ROOT" --n-images 3 --out "$OUTPUT_DIR/smoke" \
     || { echo "Smoke test failed — inspect $OUTPUT_DIR/smoke before running the pilot."; exit 1; }
 
@@ -117,6 +125,7 @@ uv run python run_phase3.py \
     --seed "$SEED" \
     --max-batches "$MAX_BATCHES" \
     --norm-mode minmax \
+    --rise-masks "$RISE_N_MASKS" \
     --ablations \
     "${WEIGHT_ARGS[@]}"
 
